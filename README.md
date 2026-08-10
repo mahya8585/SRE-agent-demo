@@ -2,14 +2,18 @@
 
 This workspace contains two independently deployable Vue sites backed by one Spring Boot API.
 
+## Documentation
+
+The complete system specification, including architecture, customer flows, API contracts, data retention, local operation, Azure infrastructure, validation results, and production limitations, is available in [docs/system-overview.md](docs/system-overview.md).
+
 ## Sites
 
 | Site | Local URL | API surface | Purpose |
 | --- | --- | --- | --- |
-| Maison Vigne Operations | <http://localhost:3000> | `GET /api/wines` | Product and inventory operations |
+| Maison Vigne Store | <http://localhost:3000> | `GET /api/wines`, `POST /api/orders` | Customer storefront, cart, and checkout |
 | Operation Pulse | <http://localhost:3001> | `GET /api/demo/incidents`, `POST /api/demo/scenarios/{scenario}` | SRE monitoring and demo scenario controls |
 
-The sites share frontend dependencies and base styles, but Vite produces separate artifacts. The operations bundle does not contain scenario controls, and the Pulse bundle does not contain inventory UI.
+The sites share frontend dependencies and base styles, but Vite produces separate artifacts. The storefront bundle does not contain scenario controls, and the Pulse bundle does not contain shopping or checkout UI. The existing `ops` script and artifact name are retained for deployment compatibility.
 
 ## Components
 

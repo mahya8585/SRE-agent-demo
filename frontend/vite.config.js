@@ -5,12 +5,14 @@ import vue from '@vitejs/plugin-vue';
 const siteConfig = {
   ops: {
     app: './src/apps/OpsApp.vue',
-    title: 'Maison Vigne | Wholesale Operations',
+    title: 'Maison Vigne | Fine Wine Merchant',
+    description: '厳選されたワインをセラーからお届けする、Maison Vigneのオンラインストア',
     port: 3000
   },
   pulse: {
     app: './src/apps/PulseApp.vue',
     title: 'Operation Pulse | SRE Console',
+    description: 'Maison VigneのSREデモ用オペレーションコンソール',
     port: 3001
   }
 };
@@ -23,7 +25,9 @@ export default defineConfig(({ mode }) => {
       vue(),
       {
         name: 'site-title',
-        transformIndexHtml: (html) => html.replace('%SITE_TITLE%', site.title)
+        transformIndexHtml: (html) => html
+          .replace('%SITE_TITLE%', site.title)
+          .replace('%SITE_DESCRIPTION%', site.description)
       }
     ],
     resolve: {
