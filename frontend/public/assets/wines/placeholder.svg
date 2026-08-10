@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200">
+  <rect width="800" height="1200" fill="#23140d"/>
+  <rect x="40" y="40" width="720" height="1120" rx="36" fill="#3d2318" stroke="#d4b36d" stroke-width="8"/>
+  <text x="400" y="560" text-anchor="middle" fill="#f6ebda" font-family="Segoe UI, Arial, sans-serif" font-size="42">Maison Vigne</text>
+  <text x="400" y="640" text-anchor="middle" fill="#c8ad85" font-family="Segoe UI, Arial, sans-serif" font-size="28">Wine image unavailable</text>
+</svg>
