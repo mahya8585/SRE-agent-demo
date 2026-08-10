@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "vite --mode ops",
+    "dev:ops": "vite --mode ops",
+    "dev:pulse": "vite --mode pulse",
+    "build": "npm run build:ops && npm run build:pulse",
+    "build:ops": "vite build --mode ops",
+    "build:pulse": "vite build --mode pulse"
   },
   "dependencies": {
     "vue": "^3.4.38"
