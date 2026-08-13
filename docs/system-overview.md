@@ -112,13 +112,13 @@ mvn test
 
 ```mermaid
 flowchart TB
-    Internet[Internet] --> StoreCA[Store Container App]
-    Internet --> ApiCA[API Container App]
+  Internet[インターネット] --> StoreCA[Storeコンテナーアプリ]
+  Internet --> ApiCA[APIコンテナーアプリ]
     StoreCA --> ApiCA
     ApiCA --> PG[(PostgreSQL Flexible Server)]
     ACR[Azure Container Registry] --> StoreCA
     ACR --> ApiCA
-    StoreCA --> CAE[Container Apps Environment]
+    StoreCA --> CAE[Container Apps環境]
     ApiCA --> CAE
     CAE --> LAW[Log Analytics]
     ApiCA --> AI[Application Insights]
@@ -135,9 +135,11 @@ flowchart TB
 | Store | <https://azstodepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 | API | <https://azapidepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 
-Container Apps EnvironmentとStore・APIはConsumption workload profileを明示使用し、`minReplicas: 0`でスケールゼロを許可します。PostgreSQLとKey Vaultはプライベートネットワークを使用します。
+Container Apps環境とStore・APIはConsumptionワークロードプロファイルを明示使用し、`minReplicas: 0`でスケールゼロを許可します。PostgreSQLとKey Vaultはプライベートネットワークを使用します。
 
-Azure SRE AgentはManualモードです。System Assigned Identityにはリソースグループスコープで`Monitoring Reader`と`Log Analytics Reader`だけを付与します。
+Azure SRE Agentは手動モードです。システム割り当てマネージドIDには、リソースグループスコープで`Monitoring Reader`と`Log Analytics Reader`だけを付与します。
+
+Application InsightsとLog Analyticsへ送信するデータ、カスタムメトリック、確認用KQLについては[オブザーバビリティ設計](observability.md)を参照してください。
 
 実アプリのターゲットポート:
 
@@ -165,7 +167,7 @@ az bicep build --file infra/main.bicep
 ./infra/deploy.ps1 -ResourceGroupName SREagent-lab -CostCenter demo
 ```
 
-詳細は`docs/azure-deployment.md`を参照してください。
+詳細は[Azure本番デプロイ](azure-deployment.md)を参照してください。
 
 ## Operation Pulseの廃止
 
@@ -173,9 +175,9 @@ az bicep build --file infra/main.bicep
 
 - VueのPulseアプリ、専用スタイル、Viteおよびnpmスクリプト
 - Spring BootのデモインシデントAPI、モデル、テスト
-- BicepのPulse Container Appと認証構成
+- BicepのPulseコンテナーアプリと認証構成
 - デプロイスクリプトのPulseイメージビルドとEntra登録処理
-- Azure Container App `azpuldepgzxcukhrdm`
+- Azureコンテナーアプリ`azpuldepgzxcukhrdm`
 - Entraアプリ登録 `Operation Pulse - SREagent-lab`
 - ACRリポジトリ `operation-pulse`
 
@@ -187,7 +189,7 @@ Azure Resource Managerの増分デプロイでは、テンプレートから削�
 
 | 確認項目 | 結果 |
 | --- | --- |
-| Bicepビルド、Azure validation、最終デプロイ | 成功 |
+| Bicepビルド、Azure検証、最終デプロイ | 成功 |
 | Store | HTTP 200 |
 | `GET /api/wines` | HTTP 200、6商品 |
 | 廃止済み`GET /api/demo/incidents` | HTTP 404 |

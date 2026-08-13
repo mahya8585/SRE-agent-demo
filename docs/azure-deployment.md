@@ -1,23 +1,23 @@
-# Azure production deployment
+# Azure本番デプロイ
 
-The production environment is defined by the subscription-scope `infra/main.bicep` orchestrator and resource-group modules under `infra/modules`.
+本番環境は、サブスクリプションスコープのオーケストレーター`infra/main.bicep`と、`infra/modules`配下のリソースグループスコープモジュールで定義します。
 
-## Resources
+## リソース
 
-- Resource group `SREagent-lab`
-- VNet-integrated Azure Container Apps environment with Store and API apps
-- Basic Azure Container Registry with managed-identity image pull
-- Private PostgreSQL Flexible Server and Private DNS
-- Key Vault with RBAC, purge protection, and 90-day soft delete
-- Log Analytics and workspace-based Application Insights
-- Azure SRE Agent PaaS and its Azure Monitor Workspace in Australia East
-- Read-only Monitoring Reader and Log Analytics Reader roles for the SRE Agent system-assigned identity
+- リソースグループ`SREagent-lab`
+- StoreとAPIを実行するVNet統合済みAzure Container Apps環境
+- マネージドIDでイメージを取得するBasic Azure Container Registry
+- プライベートPostgreSQL Flexible ServerとPrivate DNS
+- RBAC、消去保護、90日間の論理削除を設定したKey Vault
+- Log AnalyticsとワークスペースベースのApplication Insights
+- Australia EastのAzure SRE Agent PaaSと専用Azure Monitor Workspace
+- SRE Agentのシステム割り当てマネージドIDに付与する読み取り専用の`Monitoring Reader`ロールと`Log Analytics Reader`ロール
 
-Operation Pulse is not deployed. Its former Container App, Entra app registration, and `operation-pulse` ACR repository were removed on 2026-08-13.
+Operation Pulseはデプロイしません。以前使用していたコンテナーアプリ、Entraアプリ登録、ACRリポジトリ`operation-pulse`は2026年8月13日に削除済みです。
 
-The application workload remains in Japan East. Azure SRE Agent is deployed in Australia East because `Microsoft.Monitor/observabilityAgents` is not available in Japan East. The agent uses Manual mode, so it investigates and proposes mitigations without applying changes automatically. Azure SRE Agent incurs always-on Azure Agent Unit charges for as long as the agent exists.
+アプリケーションワークロードはJapan Eastに配置します。`Microsoft.Monitor/observabilityAgents`をJapan Eastで利用できないため、Azure SRE AgentはAustralia Eastへ配置します。エージェントは手動モードを使用し、調査と軽減策の提案は行いますが、変更を自動適用しません。Azure SRE Agentが存在する間は、Azure Agent Unitの常時料金が発生します。
 
-## Validate
+## 検証
 
 ```powershell
 az bicep build --file infra/main.bicep
@@ -25,71 +25,116 @@ az bicep build --file infra/main.bicep
 ./infra/deploy.ps1 -WhatIf
 ```
 
-The first command is local-only. The second validates the deployment, and the third previews Azure changes. Neither script mode creates workload resources.
+1つ目のコマンドはローカルのみでBicepをコンパイルします。2つ目はAzureデプロイを検証し、3つ目はAzureへの変更内容をプレビューします。どちらのスクリプトモードもワークロードリソースを作成しません。
 
-## Deploy
+## デプロイ
 
 ```powershell
 ./infra/deploy.ps1 -ResourceGroupName SREagent-lab -CostCenter demo
 ```
 
-The script generates the PostgreSQL password in memory, stores secrets only in a temporary parameter file, and removes that file in `finally`. It deploys bootstrap apps, builds immutable images in ACR, and applies final app revisions.
+スクリプトはPostgreSQLパスワードをメモリ上で生成し、シークレットを一時パラメーターファイルにだけ保存して、`finally`で削除します。ブートストラップアプリをデプロイし、ACRで変更不可能なイメージをビルドして、最終アプリリビジョンを適用します。
 
-The signed-in user must be allowed to create role assignments. For service-principal execution, pass its object ID with `-DeploymentPrincipalId`.
+サインインユーザーにはロール割り当てを作成する権限が必要です。サービスプリンシパルで実行する場合は、そのオブジェクトIDを`-DeploymentPrincipalId`へ渡します。
 
-The deployment uses Azure Resource Manager incremental mode. Removing a resource declaration from Bicep does not delete an already deployed resource. When retiring a component, first apply the new configuration and verify retained workloads, then explicitly delete only the retired resources.
+デプロイはAzure Resource Managerの増分モードを使用します。Bicepからリソース宣言を削除しても、デプロイ済みリソースは削除されません。コンポーネントを廃止する場合は、最初に新しい構成を適用して維持対象のワークロードを確認し、その後で廃止対象のリソースだけを明示的に削除します。
 
-For the completed Operation Pulse retirement, the explicit cleanup covered:
+完了済みのOperation Pulse廃止作業では、次のリソースを明示的に削除しました。
 
-- Container App `azpuldepgzxcukhrdm`
-- Entra app registration with the exact display name `Operation Pulse - SREagent-lab`
-- ACR repository `operation-pulse`
+- コンテナーアプリ`azpuldepgzxcukhrdm`
+- 表示名が完全一致するEntraアプリ登録`Operation Pulse - SREagent-lab`
+- ACRリポジトリ`operation-pulse`
 
-Use an exact match and inspect the result before deleting tenant-level Entra objects:
+テナントレベルのEntraオブジェクトを削除する前に、完全一致で検索して結果を確認します。
 
 ```powershell
 $apps = az ad app list --display-name 'Operation Pulse - SREagent-lab' `
-	--query "[?displayName=='Operation Pulse - SREagent-lab'].{id:id,appId:appId,displayName:displayName}" `
-	--output json | ConvertFrom-Json
+    --query "[?displayName=='Operation Pulse - SREagent-lab'].{id:id,appId:appId,displayName:displayName}" `
+    --output json | ConvertFrom-Json
 
 if (@($apps).Count -ne 1) {
-		throw "Expected one exact Operation Pulse app registration; found $(@($apps).Count)."
+    throw "Operation Pulseのアプリ登録は完全一致で1件必要です。検出件数: $(@($apps).Count)"
 }
 
 az ad app delete --id $apps[0].id
 ```
 
-The current IaC and deployment script do not recreate any of these Pulse resources.
+現在のIaCとデプロイスクリプトは、これらのPulseリソースを再作成しません。
 
-## Operations
+## 運用
 
-Liquibase applies versioned database changes when the API starts with the `production` profile. PostgreSQL is private; no permanent administration VM is deployed. Use Azure control-plane restore operations for recovery and an approved temporary VNet-connected job for exceptional SQL access.
+APIが`production`プロファイルで起動すると、Liquibaseがバージョン管理されたデータベース変更を適用します。PostgreSQLはプライベート構成であり、常設の管理VMはデプロイしません。復旧にはAzureコントロールプレーンの復元操作を使用し、例外的なSQLアクセスには承認済みの一時的なVNet接続ジョブを使用します。
 
-The low-cost profile intentionally uses scale-to-zero, a single-zone Burstable database, seven-day local backups, and no WAF or paid DDoS plan. It targets manual recovery within four hours and at most one hour of data loss; upgrade HA and backup settings before treating the store as business-critical.
+低コスト構成では、意図的にスケールゼロ、単一ゾーンのBurstableデータベース、7日間のローカルバックアップを使用し、WAFと有料DDoSプランは使用しません。目標復旧時間は手動で4時間以内、目標復旧時点は最大1時間前です。販売サイトを業務上重要なシステムとして扱う前に、HAとバックアップ設定を強化してください。
 
-## Current production endpoints
+## 現在の本番エンドポイント
 
-| Component | Endpoint |
+| コンポーネント | エンドポイント |
 | --- | --- |
 | Store | <https://azstodepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 | API | <https://azapidepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 
-The deployed Container Apps use the explicit `Consumption` workload profile with `minReplicas: 0`. Their application target ports are 8080 for Store and 8081 for API.
+デプロイ済みContainer Appsは、`minReplicas: 0`を設定した`Consumption`ワークロードプロファイルを明示的に使用します。アプリケーションのターゲットポートはStoreが8080、APIが8081です。
 
-## Verification record
+## アプリケーションテレメトリ
 
-The production state was verified on 2026-08-13 after Operation Pulse removal.
+テレメトリ設計、プライバシー上の制約、メトリック定義、確認用クエリの詳細は、[オブザーバビリティ設計](observability.md)を参照してください。
 
-| Check | Result |
+APIイメージはApplication Insights Javaエージェント3.7.8を実行します。既存の環境変数`APPLICATIONINSIGHTS_CONNECTION_STRING`により、次のテレメトリをワークスペースベースのApplication Insightsリソースへ送信します。
+
+- HTTP要求、応答時間、ステータスコード、分散トレースの相関情報
+- エージェントがクエリリテラルをマスクしたJDBC依存関係
+- 計装から検出可能な処理済み例外と未処理例外
+- `INFO`以上のLogbackログ
+- JVMのCPU、メモリ、ガベージコレクション、クラス、スレッドのメトリック
+- Micrometer業務メトリック: `wine_orders_confirmed`、`wine_orders_stock_rejected`、`wine_orders_total`、`wine_orders_items`
+
+注文ログには、生成された注文番号、商品数、送料区分、合計金額を含めます。在庫不足ログには、ワインIDと在庫数量を含めます。顧客名、メールアドレス、配送先住所はログへ出力せず、テレメトリディメンションにも追加しません。
+
+コンテナーの標準出力と標準エラーは、Container Apps環境を通じて引き続きLog Analyticsへ個別に送信されます。Logbackは標準出力へ書き込み、Javaエージェントも同じログを収集するため、アプリケーションログはContainer AppsのコンソールログテーブルとApplication Insightsの`traces`の両方で確認できます。
+
+APIトラフィックを発生させてから数分待ち、次のApplication Insightsクエリで取り込みを確認します。
+
+```kusto
+requests
+| where timestamp > ago(30m)
+| where cloud_RoleName == "wine-api"
+| project timestamp, name, resultCode, success, duration, operation_Id
+| order by timestamp desc
+```
+
+```kusto
+traces
+| where timestamp > ago(30m)
+| where cloud_RoleName == "wine-api"
+| where customDimensions.["event.name"] in ("OrderConfirmed", "OrderRejectedOutOfStock")
+| project timestamp, severityLevel, message, customDimensions, operation_Id
+| order by timestamp desc
+```
+
+```kusto
+customMetrics
+| where timestamp > ago(30m)
+| where cloud_RoleName == "wine-api"
+| where name startswith "wine_orders_"
+| summarize value=sum(value) by name, bin(timestamp, 5m)
+| order by timestamp desc
+```
+
+## 検証記録
+
+Operation Pulse削除後の本番状態を2026年8月13日に確認しました。
+
+| 確認項目 | 結果 |
 | --- | --- |
-| Bicep build and Azure validation | Succeeded |
-| Final subscription deployment | Succeeded |
-| Store request | HTTP 200 |
-| `GET /api/wines` | HTTP 200, six products |
-| Retired `GET /api/demo/incidents` | HTTP 404 |
-| Container Apps | Store and API only |
-| Azure SRE Agent | Retained as `azsredepgzxcukhrdm` in Australia East |
-| Operation Pulse Entra registrations | 0 |
-| `operation-pulse` ACR repository | Absent |
+| BicepビルドとAzure検証 | 成功 |
+| 最終サブスクリプションデプロイ | 成功 |
+| Storeへの要求 | HTTP 200 |
+| `GET /api/wines` | HTTP 200、6商品 |
+| 廃止済み`GET /api/demo/incidents` | HTTP 404 |
+| Container Apps | StoreとAPIのみ |
+| Azure SRE Agent | Australia Eastで`azsredepgzxcukhrdm`を維持 |
+| Operation PulseのEntra登録 | 0件 |
+| ACRリポジトリ`operation-pulse` | なし |
 
-The backend Maven tests passed. A local frontend build could not be completed because npm dependency installation did not receive a registry response; the frontend image did build successfully in ACR, was deployed, and passed the production HTTP check.
+バックエンドのMavenテストは成功しています。ローカルのフロントエンドビルドはnpm依存関係のインストールでレジストリから応答を得られず完了できませんでしたが、ACRでのフロントエンドイメージビルド、デプロイ、本番環境のHTTP確認は成功しました。

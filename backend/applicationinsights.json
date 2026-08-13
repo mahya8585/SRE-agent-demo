@@ -1,0 +1,20 @@
+{
+  "role": {
+    "name": "wine-api"
+  },
+  "sampling": {
+    "percentage": 100
+  },
+  "instrumentation": {
+    "logging": {
+      "level": "INFO"
+    },
+    "micrometer": {
+      "enabled": true
+    }
+  },
+  "selfDiagnostics": {
+    "destination": "console",
+    "level": "WARN"
+  }
+}

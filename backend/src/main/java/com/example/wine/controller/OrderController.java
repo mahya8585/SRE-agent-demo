@@ -9,6 +9,7 @@ import com.example.wine.model.Wine;
 import com.example.wine.repository.CustomerOrderRepository;
 import com.example.wine.repository.OrderLineRepository;
 import com.example.wine.repository.WineRepository;
+import com.example.wine.telemetry.ApplicationTelemetry;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,12 +33,14 @@ public class OrderController {
     private final WineRepository wineRepository;
     private final CustomerOrderRepository customerOrderRepository;
     private final OrderLineRepository orderLineRepository;
+    private final ApplicationTelemetry telemetry;
 
     public OrderController(WineRepository wineRepository, CustomerOrderRepository customerOrderRepository,
-                           OrderLineRepository orderLineRepository) {
+                           OrderLineRepository orderLineRepository, ApplicationTelemetry telemetry) {
         this.wineRepository = wineRepository;
         this.customerOrderRepository = customerOrderRepository;
         this.orderLineRepository = orderLineRepository;
+        this.telemetry = telemetry;
     }
 
     @PostMapping
@@ -52,6 +55,7 @@ public class OrderController {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Wine not found"));
 
             if (wine.getStock() < item.getQuantity()) {
+                telemetry.stockRejected(wine.getId(), item.getQuantity(), wine.getStock());
                 throw new ResponseStatusException(HttpStatus.CONFLICT, wine.getName() + " is out of stock");
             }
 
@@ -92,6 +96,7 @@ public class OrderController {
             orderLines.add(line);
         }
         orderLineRepository.saveAll(orderLines);
+        telemetry.orderConfirmed(orderNumber, itemCount, subtotal + shipping, shipping == 0.0);
 
         return new OrderConfirmation(
             orderNumber,

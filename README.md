@@ -1,37 +1,37 @@
 # SRE Agent Wine Demo
 
-This workspace contains a customer-facing Vue storefront backed by a Spring Boot API. Production orders and inventory are persisted in Azure Database for PostgreSQL, and Azure SRE Agent provides read-only operational investigation.
+このワークスペースには、Spring Boot APIをバックエンドとする購入者向けVue販売サイトが含まれています。本番環境の注文と在庫はAzure Database for PostgreSQLへ永続化され、Azure SRE Agentが読み取り専用で運用調査を行います。
 
-## Documentation
+## ドキュメント
 
-The complete system specification, including architecture, customer flows, API contracts, data retention, local operation, Azure infrastructure, validation results, and production limitations, is available in [docs/system-overview.md](docs/system-overview.md).
+アーキテクチャ、購入フロー、API仕様、データ保持、ローカル実行、Azureインフラ、検証結果、本番環境の制約を含むシステム仕様全体は、[システム仕様](docs/system-overview.md)を参照してください。
 
-## Site
+## サイト
 
-| Site | Local URL | Production URL | API surface | Purpose |
+| サイト | ローカルURL | 本番URL | API | 用途 |
 | --- | --- | --- | --- | --- |
-| Maison Vigne Store | <http://localhost:3000> | <https://azstodepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> | `GET /api/wines`, `POST /api/orders` | Customer storefront, cart, and checkout |
+| Maison Vigne Store | <http://localhost:3000> | <https://azstodepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> | `GET /api/wines`、`POST /api/orders` | 購入者向け販売サイト、カート、購入手続き |
 
-The existing `ops` script and artifact name are retained for deployment compatibility.
-Operation Pulse and its demo incident API have been retired and are not part of the application or Azure deployment.
+既存の`ops`スクリプトと成果物名は、デプロイ互換性のため維持しています。
+Operation PulseとデモインシデントAPIは廃止済みで、アプリケーションとAzureデプロイには含まれません。
 
-## Components
+## 構成要素
 
-- Backend: Spring Boot 2.7 / Java 8 / Maven
-- Frontend: Vue 3 + Vite
-- Data: in-memory H2 for local development; PostgreSQL 17 in Azure
-- Infrastructure: Azure Container Apps, Azure Container Registry, PostgreSQL, managed identity, Azure Monitor, and Azure SRE Agent
+- バックエンド: Spring Boot 2.7、Java 8、Maven
+- フロントエンド: Vue 3、Vite
+- データ: ローカル開発ではインメモリH2、AzureではPostgreSQL 17
+- インフラ: Azure Container Apps、Azure Container Registry、PostgreSQL、マネージドID、Azure Monitor、Azure SRE Agent
 
-## Run locally
+## ローカル実行
 
-Start the API:
+APIを起動します。
 
 ```powershell
 Set-Location backend
 mvn spring-boot:run
 ```
 
-In a separate terminal, start the site:
+別のターミナルで販売サイトを起動します。
 
 ```powershell
 Set-Location frontend
@@ -39,61 +39,63 @@ npm install
 npm run dev:ops
 ```
 
-The default API endpoint is `http://localhost:8081`. To use another endpoint, copy `frontend/.env.example` to an appropriate Vite mode file such as `.env.ops.local` and set `VITE_API_BASE_URL`.
+既定のAPIエンドポイントは`http://localhost:8081`です。別のエンドポイントを使用する場合は、`frontend/.env.example`を`.env.ops.local`など適切なViteモードファイルへコピーし、`VITE_API_BASE_URL`を設定します。
 
-The backend accepts requests from the local storefront origin by default. Override it for deployed environments:
+バックエンドは既定でローカル販売サイトのオリジンからの要求を許可します。デプロイ環境では次のように上書きします。
 
 ```powershell
 $env:CORS_ALLOWED_ORIGINS = 'https://store.example.com'
 mvn spring-boot:run
 ```
 
-## Build
+## ビルド
 
-Build the storefront:
+販売サイトをビルドします。
 
 ```powershell
 Set-Location frontend
 npm run build:ops
 ```
 
-The output is written to `frontend/dist/ops`.
+成果物は`frontend/dist/ops`へ出力されます。
 
-Build the container images after the target API URL is known:
+接続先APIのURLが確定した後、コンテナーイメージをビルドします。
 
 ```powershell
 docker build frontend --build-arg SITE=ops --build-arg VITE_API_BASE_URL=https://API_HOST -t maison-vigne-ops:local
 docker build backend -t wine-api:local
 ```
 
-## Azure infrastructure
+## Azureインフラ
 
-`infra/main.bicep` is a subscription-scope orchestrator for the production environment in Japan East. Resource-group modules define:
+`infra/main.bicep`は、Japan Eastの本番環境を構成するサブスクリプションスコープのオーケストレーターです。リソースグループスコープのモジュールでは次を定義します。
 
-- VNet-integrated Container Apps for Store and API
-- Private PostgreSQL Flexible Server with versioned Liquibase migrations
-- Key Vault and separate managed identities for image pull and API secret access
-- Basic ACR, Log Analytics, and workspace-based Application Insights
-- Azure SRE Agent PaaS with a dedicated Azure Monitor Workspace and read-only workload access
+- VNet統合されたStoreとAPIのContainer Apps
+- Liquibaseでバージョン管理されたマイグレーションを使用するプライベートPostgreSQL Flexible Server
+- Key Vault、およびイメージ取得用とAPIシークレット参照用の個別マネージドID
+- Basic ACR、Log Analytics、ワークスペースベースのApplication Insights
+- 専用Azure Monitor Workspaceとワークロードへの読み取り専用アクセスを持つAzure SRE Agent PaaS
 
-The deployment script creates bootstrap endpoints, builds immutable images in ACR, and applies the final revisions. Secrets are generated at runtime and are not stored in the committed parameter example.
+APIコンテナーはApplication Insights Javaエージェント3.7.8を使用し、要求、JDBC依存関係、例外、Logbackログ、JVMテレメトリを自動収集します。注文処理では、顧客名、メールアドレス、配送先住所を含まないMicrometer業務メトリックも送信します。コンテナーの標準出力と標準エラーは、引き続きLog Analyticsへ送信されます。
 
-Validate the template before deployment:
+デプロイスクリプトは、ブートストラップ用エンドポイントの作成、ACRでの変更不可能なイメージのビルド、最終リビジョンの適用を行います。シークレットは実行時に生成され、コミット済みのパラメーター例には保存されません。
+
+デプロイ前にテンプレートを検証します。
 
 ```powershell
 az bicep build --file infra/main.bicep
 ./infra/deploy.ps1 -ValidateOnly
 ```
 
-See [docs/azure-deployment.md](docs/azure-deployment.md) for deployment prerequisites, operations, and accepted low-cost availability tradeoffs.
+デプロイの前提条件、運用、低コスト構成で許容する可用性上のトレードオフについては、[Azure本番デプロイ](docs/azure-deployment.md)を参照してください。テレメトリの送信先、収集データ、プライバシー上の制約、確認用クエリについては、[オブザーバビリティ設計](docs/observability.md)を参照してください。
 
-## Current deployment
+## 現在のデプロイ状態
 
-The production deployment in resource group `SREagent-lab` was verified on 2026-08-13:
+リソースグループ`SREagent-lab`の本番デプロイは、2026年8月13日に次の内容を確認済みです。
 
-- Store returned HTTP 200.
-- `GET /api/wines` returned HTTP 200 with six products.
-- The retired `GET /api/demo/incidents` endpoint returned HTTP 404.
-- The resource group contained only the Store and API Container Apps.
-- Azure SRE Agent `azsredepgzxcukhrdm` remained deployed in Australia East.
-- The Operation Pulse Container App, Entra app registration, and ACR repository were removed.
+- StoreはHTTP 200を返しました。
+- `GET /api/wines`はHTTP 200と6商品を返しました。
+- 廃止済みの`GET /api/demo/incidents`エンドポイントはHTTP 404を返しました。
+- リソースグループ内のContainer AppsはStoreとAPIの2件のみです。
+- Azure SRE Agent `azsredepgzxcukhrdm`はAustralia Eastで維持されています。
+- Operation PulseのContainer App、Entraアプリ登録、ACRリポジトリは削除済みです。
