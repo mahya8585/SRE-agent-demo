@@ -1,6 +1,8 @@
 package com.example.wine.controller;
 
 import com.example.wine.model.Wine;
+import com.example.wine.repository.CustomerOrderRepository;
+import com.example.wine.repository.OrderLineRepository;
 import com.example.wine.repository.WineRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +30,12 @@ class OrderControllerTest {
     @MockBean
     private WineRepository wineRepository;
 
+    @MockBean
+    private CustomerOrderRepository customerOrderRepository;
+
+    @MockBean
+    private OrderLineRepository orderLineRepository;
+
     @Test
     void createsOrderAndReducesStock() throws Exception {
         Wine wine = new Wine();
@@ -35,7 +43,7 @@ class OrderControllerTest {
         wine.setName("Château Lueur Noire");
         wine.setPrice(7400.0);
         wine.setStock(24);
-        when(wineRepository.findById(1L)).thenReturn(Optional.of(wine));
+        when(wineRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(wine));
 
         mockMvc.perform(post("/api/orders")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -48,6 +56,8 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.total").value(15600.0));
 
         verify(wineRepository).saveAll(anyList());
+        verify(customerOrderRepository).save(org.mockito.ArgumentMatchers.any());
+        verify(orderLineRepository).saveAll(anyList());
         org.junit.jupiter.api.Assertions.assertEquals(22, wine.getStock());
     }
 
@@ -58,7 +68,7 @@ class OrderControllerTest {
         wine.setName("Château Lueur Noire");
         wine.setPrice(7400.0);
         wine.setStock(1);
-        when(wineRepository.findById(1L)).thenReturn(Optional.of(wine));
+        when(wineRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(wine));
 
         mockMvc.perform(post("/api/orders")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,6 +76,8 @@ class OrderControllerTest {
                 .andExpect(status().isConflict());
 
         verify(wineRepository, never()).saveAll(anyList());
+        verify(customerOrderRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(orderLineRepository, never()).saveAll(anyList());
         org.junit.jupiter.api.Assertions.assertEquals(1, wine.getStock());
     }
 }

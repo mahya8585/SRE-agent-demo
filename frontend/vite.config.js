@@ -8,12 +8,6 @@ const siteConfig = {
     title: 'Maison Vigne | Fine Wine Merchant',
     description: '厳選されたワインをセラーからお届けする、Maison Vigneのオンラインストア',
     port: 3000
-  },
-  pulse: {
-    app: './src/apps/PulseApp.vue',
-    title: 'Operation Pulse | SRE Console',
-    description: 'Maison VigneのSREデモ用オペレーションコンソール',
-    port: 3001
   }
 };
 
@@ -36,7 +30,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
-      outDir: `dist/${mode === 'pulse' ? 'pulse' : 'ops'}`,
+      outDir: 'dist/ops',
       emptyOutDir: true
     },
     server: {

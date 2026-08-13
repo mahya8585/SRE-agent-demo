@@ -2,8 +2,8 @@ FROM cgr.dev/chainguard/node:latest-dev AS build
 
 USER root
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+COPY package.json .npmrc ./
+RUN npm install --ignore-scripts
 COPY . .
 
 ARG SITE=ops
