@@ -89,9 +89,13 @@ try {
     $resourceGroupName = $bootstrap.resourceGroupName.value
     $registryName = $bootstrap.registryName.value
     $apiUrl = $bootstrap.apiUrl.value
+    $applicationInsightsConnectionString = az monitor app-insights component show --resource-group $resourceGroupName --app $bootstrap.applicationInsightsName.value --query connectionString -o tsv --only-show-errors
+    if ($LASTEXITCODE -ne 0 -or -not $applicationInsightsConnectionString) { throw 'Application Insights connection string lookup failed.' }
+    $applicationInsightsConnectionStringBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($applicationInsightsConnectionString))
 
     Invoke-AcrBuild -RegistryName $registryName -BuildArguments @('--image', "wine-api:$ImageTag", '--file', (Join-Path $root 'backend/Dockerfile'), (Join-Path $root 'backend')) -FailureMessage 'API image build failed.'
     Invoke-AcrBuild -RegistryName $registryName -BuildArguments @('--image', "maison-vigne-store:$ImageTag", '--build-arg', 'SITE=ops', '--build-arg', "VITE_API_BASE_URL=$apiUrl", '--file', (Join-Path $root 'frontend/Dockerfile'), (Join-Path $root 'frontend')) -FailureMessage 'Store image build failed.'
+    Invoke-AcrBuild -RegistryName $registryName -BuildArguments @('--image', "maison-vigne-admin:$ImageTag", '--build-arg', "VITE_API_BASE_URL=$apiUrl", '--build-arg', "VITE_APPLICATIONINSIGHTS_CONNECTION_STRING_BASE64=$applicationInsightsConnectionStringBase64", '--file', (Join-Path $root 'admin-frontend/Dockerfile'), (Join-Path $root 'admin-frontend')) -FailureMessage 'Admin image build failed.'
 
     Write-Parameters -Tag $ImageTag
     az deployment sub create --name "$deploymentName-apps" --location $Location --template-file $template --parameters "@$temporaryParameters" --no-wait --only-show-errors --output none
@@ -103,6 +107,7 @@ try {
     [pscustomobject]@{
         ResourceGroup = $final.resourceGroupName.value
         Store = $final.operationsUrl.value
+        Admin = $final.adminUrl.value
         Api = $final.apiUrl.value
         SreAgent = $final.sreAgentName.value
         ImageTag = $ImageTag
@@ -111,4 +116,6 @@ try {
 finally {
     if (Test-Path $temporaryParameters) { Remove-Item $temporaryParameters -Force }
     $postgresPassword = $null
+    $applicationInsightsConnectionString = $null
+    $applicationInsightsConnectionStringBase64 = $null
 }

@@ -298,7 +298,7 @@ Azureへ反映する場合は通常のデプロイスクリプトを使用しま
 - LogbackログはLog AnalyticsとApplication Insightsの両方へ入るため、ログ量と保持期間を定期的に確認してください。
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`がないローカル実行では、Application Insightsへの送信は行われません。
 - `VITE_APPLICATIONINSIGHTS_CONNECTION_STRING`がない管理画面では、ブラウザテレメトリの送信は行われません。API側の収集には影響しません。
-- 現在のAzure IaCは管理画面をデプロイしないため、ブラウザテレメトリはローカルまたは別途ビルドした管理画面で接続文字列を設定した場合だけ送信されます。
+- AzureデプロイスクリプトはApplication Insights接続文字列をBase64化してAdminのACRビルドへ渡し、ビルドコンテナー内で復号してBrowser SDKへ設定します。値をACRコマンド出力やログへ表示しません。
 - Application Insights Javaエージェントのバージョン更新時は、DockerfileのバージョンとSHA-256を同時に更新し、バックエンドテストとDockerビルドを実行してください。
 
 ## 関連ファイル

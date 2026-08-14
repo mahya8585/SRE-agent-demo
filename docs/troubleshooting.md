@@ -48,7 +48,7 @@
 | --- | --- | --- |
 | APIが起動しない | APIコンソール、`mvn test` | コンパイル、ポート競合、設定、DB初期化 |
 | UIからAPIを呼べない | ブラウザー開発者ツール、API URL、CORS | API未起動、URL誤り、許可origin不足 |
-| 管理画面が本番URLにない | Bicep、`infra/deploy.ps1` | 現在のデプロイ対象はStoreとAPIのみ |
+| 管理画面が本番URLで開かない | Adminリビジョン、ACRイメージ、Ingress | イメージビルド失敗、起動失敗、ターゲットポート不一致 |
 | 商品画像を登録・表示できない | API応答、Blob Storage、ファイル形式 | 形式・サイズ違反、マネージドID、Private DNS、RBAC |
 | Application Insightsに何もない | 接続文字列、Javaエージェント、取り込み待ち | 接続文字列だけ設定、エージェント未起動、対象トラフィックなし |
 | ブラウザテレメトリだけない | Vite環境変数、ビルド時設定 | 接続文字列未設定、設定後に未再起動・未再ビルド |
@@ -254,7 +254,7 @@ npm run build
 
 接続文字列は認証シークレットではありませんが、公開JavaScriptへ含まれます。APIキーや資格情報を同じ変数へ設定しません。設定変更後は開発サーバーの再起動または再ビルドが必要です。
 
-現在のAzure IaCは管理画面をデプロイしません。Azure上に管理画面のページ表示やイベントがない場合は、最初に管理画面自体のデプロイ有無を確認します。
+Azure上の管理画面でページ表示やイベントがない場合は、Admin Container Appの最新リビジョン、イメージタグ、HTTP応答を確認します。接続文字列はデプロイスクリプトがBase64化してACRビルドへ渡し、ビルドコンテナー内で復号します。
 
 ## Azure CLIとリソース検索
 
@@ -312,6 +312,7 @@ az bicep build --file infra/main.bicep
 - Azure検証失敗: プロバイダー、リージョン、SKU、RBAC、ポリシー、クォータを確認します。
 - What-Ifに意図しない削除・再作成がある: デプロイせず、IaC差分を修正します。
 - ロール割り当て失敗: 実行主体にロール割り当てを作成する権限があるか確認します。
+- `ServerStoppedError`: PostgreSQL Flexible Serverを起動し、`Ready`を確認してからWhat-Ifを再実行します。
 
 ### ACRビルドが失敗する
 
@@ -328,6 +329,9 @@ az acr task logs --registry $RegistryName --run-id '<RUN_ID>'
 - Dockerfileのパスとビルドコンテキスト
 - Application Insights JavaエージェントのダウンロードとSHA-256検証
 - npmまたはMavenの依存関係取得
+- ビルド引数にセミコロンなどのシェル特殊文字を直接渡していないか
+- lockfileの`resolved`が開発環境固有のレジストリを指していないか
+- `.dockerignore`でローカル`node_modules`と`dist`を除外しているか
 - ACRの権限、ネットワーク、クォータ
 - 同じイメージタグの扱い
 
@@ -351,19 +355,9 @@ az containerapp revision list --name $ApiApp --resource-group SREagent-lab --out
 
 2026年8月13日の本番検証はStoreと当時のAPIを対象とします。翌日に追加した管理APIの本番反映は未検証です。過去の検証成功を、現在のコードがデプロイ済みである根拠にしません。
 
-### 管理画面がAzureへデプロイされない
+### 管理画面を開けるがAPI操作を実行できない
 
-これは現在の仕様です。`admin-frontend/Dockerfile`はありますが、Bicepと`infra/deploy.ps1`が作成・ビルドするのはStoreとAPIだけです。
-
-管理画面を本番公開するには、少なくとも次の設計と実装が別途必要です。
-
-- 管理画面のACRビルドとContainer App
-- `VITE_API_BASE_URL`とブラウザテレメトリのビルド時設定
-- Microsoft Entra IDなどによる管理画面と`/api/admin/**`の認証・認可
-- APIの`CORS_ALLOWED_ORIGINS`
-- 外部公開、ネットワーク、監視、ロールバック手順
-
-認証・認可が未実装のまま管理画面または管理APIをインターネットへ公開しません。
+Admin Container App、API、CORSを順に確認します。APIの`CORS_ALLOWED_ORIGINS`にはStoreとAdminの完全なHTTPSオリジンが必要です。管理画面と`/api/admin/**`には認証・認可が未実装のため、現在の公開環境はデモ用途に限定します。実運用前にMicrosoft Entra IDなどで両方を保護します。
 
 ### Bicepから削除したリソースがAzureに残る
 
@@ -500,7 +494,7 @@ az bicep build --file infra/main.bicep
 ./infra/deploy.ps1 -ResourceGroupName SREagent-lab -WhatIf
 ```
 
-ローカルDockerを利用できる場合だけ、StoreとAPIのイメージビルドも実行します。管理画面はローカルDockerビルドに対応しますが、現在のAzureデプロイ対象ではありません。
+ローカルDockerを利用できる場合だけ、Store、Admin、APIのイメージビルドも実行します。Dockerを利用できない場合は、デプロイスクリプトのACR Linuxビルドを代替検証経路として使用します。
 
 ## エスカレーション時に添付する情報
 
@@ -549,6 +543,26 @@ az bicep build --file infra/main.bicep
 - 対応: Javaエージェント3.7.8、SHA-256検証、Micrometer、構造化ログ、例外ログ、ライフサイクルログを追加した。
 - 検証: バックエンドテスト、ACR Linuxイメージビルド、本番API要求、Application Insightsの`ApplicationReady`を確認した。
 - 再発防止: エージェントのバージョンとSHA-256を同時管理し、接続文字列だけでは計装されないことと確認用KQLを本書へ記載した。
+- 状態: 解決
+
+### 2026-08-14: 停止中PostgreSQLによりAzure What-Ifが失敗する
+
+- 症状・影響: Azure Validateは成功したが、サブスクリプションスコープのWhat-Ifが完了せず、デプロイ前の変更確認を実施できなかった。
+- 原因・仮説: 既存PostgreSQL Flexible Serverが`Stopped`で、What-Ifのリソース状態予測がサーバー情報を参照できなかった。
+- 証跡: `ServerStoppedError`と対象サーバーの`Stopped`状態を確認した。
+- 対応: Flexible Serverを起動し、状態が`Ready`になった後にWhat-Ifを再実行した。
+- 検証: What-Ifは9件作成、15件変更、削除0件として成功した。
+- 再発防止: デプロイ前確認へ`ServerStoppedError`時の起動・状態確認手順を追加した。
+- 状態: 解決
+
+### 2026-08-14: AdminのACRビルドが接続文字列とlockfileにより失敗する
+
+- 症状・影響: ブートストラップデプロイ後、AdminイメージのACRビルドが失敗し、最終アプリデプロイへ進まなかった。
+- 原因・仮説: Application Insights接続文字列のセミコロンがACR内部シェルで分割された。修正後はlockfileが開発環境固有のパッケージURLを固定し、ACRからの取得を拒否された。
+- 証跡: ACR Runで`docker build requires exactly 1 argument`と`EALLOWREMOTE`を確認した。
+- 対応: 接続文字列をBase64化して渡し、コンテナー内で復号した。Adminへ公開npmレジストリ設定と`.dockerignore`を追加し、Dockerfileを`package.json`からの依存解決へ変更した。
+- 検証: Adminを含む3件のACRビルド、最終ARMデプロイ、3リビジョンの`Healthy`、AdminのHTTP 200を確認した。
+- 再発防止: ACRビルド確認項目へシェル特殊文字、lockfileの取得元、ビルドコンテキスト除外を追加した。
 - 状態: 解決
 
 ### 2026-08-13: Docker Desktop停止によりローカルイメージを検証できない

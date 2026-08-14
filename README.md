@@ -14,7 +14,7 @@
 | サイト | ローカルURL | 本番URL | API | 用途 |
 | --- | --- | --- | --- | --- |
 | Maison Vigne Store | <http://localhost:3000> | <https://azstodepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> | `GET /api/wines`、`POST /api/orders` | 購入者向け販売サイト、カート、購入手続き |
-| Maison Vigne Admin | <http://localhost:3001> | 未デプロイ | `/api/admin/dashboard`、`/api/admin/orders`、`/api/admin/inventory`、`/api/admin/purchase-orders` | サマリー、注文ステータス、在庫、発注・受取の管理 |
+| Maison Vigne Admin | <http://localhost:3001> | <https://azadmdepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> | `/api/admin/dashboard`、`/api/admin/orders`、`/api/admin/inventory`、`/api/admin/purchase-orders` | サマリー、注文ステータス、在庫、発注・受取の管理 |
 
 既存の`ops`スクリプトと成果物名は、デプロイ互換性のため維持しています。
 Operation PulseとデモインシデントAPIは廃止済みで、アプリケーションとAzureデプロイには含まれません。
@@ -79,7 +79,7 @@ Set-Location admin-frontend
 npm run build
 ```
 
-成果物は`admin-frontend/dist`へ出力されます。管理画面では注文ステータスと在庫数を更新し、商品登録、ワインの発注・受取を行えます。納品予定日は土日を除いた5営業日後です。受取処理は発注レコードを削除し、同一トランザクションで対象商品の在庫を発注数だけ増加させます。Entra ID認証はまだ実装されていないため、本番デプロイ前に`/api/admin/**`をOAuth 2.0 Resource Serverとして保護してください。
+成果物は`admin-frontend/dist`へ出力されます。管理画面では注文ステータスと在庫数を更新し、商品登録、ワインの発注・受取を行えます。納品予定日は土日を除いた5営業日後です。受取処理は発注レコードを削除し、同一トランザクションで対象商品の在庫を発注数だけ増加させます。Entra ID認証はまだ実装されていないため、現在の公開環境はデモ用途に限定し、実運用前に`/api/admin/**`をOAuth 2.0 Resource Serverとして保護してください。
 
 バックエンドテストを実行します。
 
@@ -94,7 +94,8 @@ mvn test
 
 ```powershell
 docker build frontend --build-arg SITE=ops --build-arg VITE_API_BASE_URL=https://API_HOST -t maison-vigne-ops:local
-docker build admin-frontend --build-arg VITE_API_BASE_URL=https://API_HOST --build-arg VITE_APPLICATIONINSIGHTS_CONNECTION_STRING='APPLICATION_INSIGHTS_CONNECTION_STRING' -t maison-vigne-admin:local
+$aiConnectionStringBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('APPLICATION_INSIGHTS_CONNECTION_STRING'))
+docker build admin-frontend --build-arg VITE_API_BASE_URL=https://API_HOST --build-arg VITE_APPLICATIONINSIGHTS_CONNECTION_STRING_BASE64=$aiConnectionStringBase64 -t maison-vigne-admin:local
 docker build backend -t wine-api:local
 ```
 
@@ -102,7 +103,7 @@ docker build backend -t wine-api:local
 
 `infra/main.bicep`は、Japan Eastの本番環境を構成するサブスクリプションスコープのオーケストレーターです。リソースグループスコープのモジュールでは次を定義します。
 
-- VNet統合されたStoreとAPIのContainer Apps。管理画面は現在のIaCに含まれない
+- VNet統合されたStore、Admin、APIのContainer Apps
 - Liquibaseでバージョン管理されたマイグレーションを使用するプライベートPostgreSQL Flexible Server
 - Private Endpointで接続し、マネージドIDで読み書きする非公開Azure Blob Storage
 - Key Vault、およびイメージ取得用とAPIシークレット参照用の個別マネージドID
@@ -124,12 +125,15 @@ az bicep build --file infra/main.bicep
 
 ## 現在のデプロイ状態
 
-リソースグループ`SREagent-lab`の本番デプロイは、2026年8月13日に次の内容を確認済みです。
+リソースグループ`SREagent-lab`へイメージタグ`20260814160104`を2026年8月14日にデプロイし、次の内容を確認済みです。
 
 - StoreはHTTP 200を返しました。
+- AdminはHTTP 200を返しました。
 - `GET /api/wines`はHTTP 200と6商品を返しました。
-- 廃止済みの`GET /api/demo/incidents`エンドポイントはHTTP 404を返しました。
-- リソースグループ内のContainer AppsはStoreとAPIの2件のみです。
-- 管理画面のDockerイメージとContainer Appは未デプロイです。管理APIを含む最新バックエンドコードの本番反映は、この日付の検証対象外です。
+- `GET /api/admin/dashboard`はHTTP 200と期待するサマリー項目を返しました。
+- Store、Admin、APIの最新リビジョンは`Healthy`かつ`Running`です。
+- 非公開Blob Storage、Private Endpoint、Private DNS、マネージドIDのBlob RBACを確認しました。
 - Azure SRE Agent `azsredepgzxcukhrdm`はAustralia Eastで維持されています。
 - Operation PulseのContainer App、Entraアプリ登録、ACRリポジトリは削除済みです。
+
+管理画面と`/api/admin/**`には認証・認可が未実装です。現在の公開URLはデモ用途に限定し、実運用前にMicrosoft Entra IDなどで保護してください。

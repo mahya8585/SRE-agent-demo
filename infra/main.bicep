@@ -82,9 +82,10 @@ module apps 'modules/container-apps.bicep' = {
     blobEndpoint: foundation.outputs.blobEndpoint
     wineImagesContainerName: foundation.outputs.wineImagesContainerName
     storeImage: useBootstrap ? bootstrapImage : '${foundation.outputs.registryLoginServer}/maison-vigne-store:${imageTag}'
+    adminImage: useBootstrap ? bootstrapImage : '${foundation.outputs.registryLoginServer}/maison-vigne-admin:${imageTag}'
     apiImage: useBootstrap ? bootstrapImage : '${foundation.outputs.registryLoginServer}/wine-api:${imageTag}'
     bootstrapMode: useBootstrap
-    targetPorts: useBootstrap ? { store: 80, api: 80 } : { store: 8080, api: 8081 }
+    targetPorts: useBootstrap ? { store: 80, admin: 80, api: 80 } : { store: 8080, admin: 8080, api: 8081 }
     tags: tags
   }
 }
@@ -102,10 +103,12 @@ module sreAgent 'modules/sre-agent.bicep' = {
 output resourceGroupName string = resourceGroup.name
 output registryName string = foundation.outputs.registryName
 output registryLoginServer string = foundation.outputs.registryLoginServer
+output applicationInsightsName string = foundation.outputs.applicationInsightsName
 output keyVaultName string = foundation.outputs.keyVaultName
 output storageAccountName string = foundation.outputs.storageAccountName
 output postgresServerName string = database.outputs.serverName
 output operationsUrl string = apps.outputs.storeUrl
+output adminUrl string = apps.outputs.adminUrl
 output apiUrl string = apps.outputs.apiUrl
 output sreAgentName string = sreAgent.outputs.agentName
 output sreAgentId string = sreAgent.outputs.agentId

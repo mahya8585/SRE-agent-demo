@@ -13,6 +13,7 @@ param applicationInsightsConnectionString string
 param blobEndpoint string
 param wineImagesContainerName string
 param storeImage string
+param adminImage string
 param apiImage string
 param bootstrapMode bool
 param targetPorts object
@@ -60,6 +61,26 @@ resource store 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+resource admin 'Microsoft.App/containerApps@2024-03-01' = {
+  name: 'azadm${resourceToken}'
+  location: location
+  tags: tags
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${pullIdentityId}': {} } }
+  properties: {
+    managedEnvironmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      registries: [ { server: registry.properties.loginServer, identity: pullIdentityId } ]
+      ingress: { external: true, targetPort: targetPorts.admin, transport: 'auto', allowInsecure: false }
+    }
+    template: {
+      containers: [ { name: 'admin', image: adminImage, resources: { cpu: json('0.25'), memory: '0.5Gi' } } ]
+      scale: { minReplicas: 0, maxReplicas: 2 }
+    }
+  }
+}
+
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'azapi${resourceToken}'
   location: location
@@ -90,7 +111,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'SPRING_DATASOURCE_URL', value: 'jdbc:postgresql://${postgresServerFqdn}:5432/${postgresDatabaseName}?sslmode=require' }
             { name: 'SPRING_DATASOURCE_USERNAME', secretRef: 'postgres-admin-username' }
             { name: 'SPRING_DATASOURCE_PASSWORD', secretRef: 'postgres-admin-password' }
-            { name: 'CORS_ALLOWED_ORIGINS', value: 'https://${store.properties.configuration.ingress.fqdn}' }
+            { name: 'CORS_ALLOWED_ORIGINS', value: 'https://${store.properties.configuration.ingress.fqdn},https://${admin.properties.configuration.ingress.fqdn}' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsightsConnectionString }
             { name: 'AZURE_STORAGE_BLOB_ENDPOINT', value: blobEndpoint }
             { name: 'AZURE_STORAGE_BLOB_CONTAINER_NAME', value: wineImagesContainerName }
@@ -105,4 +126,5 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 output storeUrl string = 'https://${store.properties.configuration.ingress.fqdn}'
+output adminUrl string = 'https://${admin.properties.configuration.ingress.fqdn}'
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'

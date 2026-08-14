@@ -229,6 +229,7 @@ resource deployerSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01
 }
 
 output logAnalyticsName string = logAnalytics.name
+output applicationInsightsName string = appInsights.name
 output applicationInsightsConnectionString string = appInsights.properties.ConnectionString
 output registryName string = registry.name
 output registryLoginServer string = registry.properties.loginServer
