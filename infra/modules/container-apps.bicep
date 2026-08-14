@@ -5,10 +5,13 @@ param logAnalyticsName string
 param registryName string
 param pullIdentityId string
 param apiIdentityId string
+param apiIdentityClientId string
 param keyVaultName string
 param postgresServerFqdn string
 param postgresDatabaseName string
 param applicationInsightsConnectionString string
+param blobEndpoint string
+param wineImagesContainerName string
 param storeImage string
 param apiImage string
 param bootstrapMode bool
@@ -89,6 +92,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'SPRING_DATASOURCE_PASSWORD', secretRef: 'postgres-admin-password' }
             { name: 'CORS_ALLOWED_ORIGINS', value: 'https://${store.properties.configuration.ingress.fqdn}' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsightsConnectionString }
+            { name: 'AZURE_STORAGE_BLOB_ENDPOINT', value: blobEndpoint }
+            { name: 'AZURE_STORAGE_BLOB_CONTAINER_NAME', value: wineImagesContainerName }
+            { name: 'AZURE_CLIENT_ID', value: apiIdentityClientId }
           ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
         }

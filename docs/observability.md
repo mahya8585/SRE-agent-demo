@@ -14,10 +14,13 @@ Maison Vigneの実行状態と注文処理を、用途に応じてLog Analytics�
 ```mermaid
 flowchart LR
     Client[販売サイト] -->|HTTPS| API[ワインAPIコンテナーアプリ]
+    Admin[管理ダッシュボード] -->|HTTPS| API
+    Admin -->|Browser SDK| AI[Application Insights]
     API -->|JDBC| DB[(PostgreSQL)]
+    API -->|Azure SDK / HTTPS| Blob[Azure Blob Storage]
     API -->|stdout / stderr| CAE[Container Apps Environment]
     CAE --> LAW[Log Analytics]
-    API -->|Javaエージェントテレメトリ| AI[Application Insights]
+    API -->|Javaエージェントテレメトリ| AI
     AI -->|workspace-based| LAW
     SRE[Azure SRE Agent] -->|読み取り専用| LAW
 ```
@@ -35,6 +38,8 @@ Application InsightsはLog Analyticsワークスペースベースで作成さ�
 | Logbackの`INFO`以上のログ | Application Insights | `traces`または`exceptions` |
 | JVM、プロセス、ホストのメトリック | Application Insights | `customMetrics`、Metrics Explorer |
 | 注文処理のカスタムメトリック | Application Insights | `customMetrics` |
+| 管理画面のページ表示、API呼び出し、JavaScript例外 | Application Insights | `pageViews`、`dependencies`、`exceptions` |
+| 管理画面の更新成功、API失敗イベント | Application Insights | `customEvents` |
 
 Logbackは標準出力にも書き込むため、アプリケーションログはLog AnalyticsのコンテナーログとApplication Insightsの両方に現れます。これは、コンテナー起動障害の調査とアプリケーション要求単位の調査をどちらも可能にするための構成です。
 
@@ -73,12 +78,17 @@ JDBCクエリのリテラル値はエージェントの既定動作でマスク�
 
 ### アプリケーションログ
 
-`ApplicationTelemetry`は注文処理を次のイベントとして記録します。
+`ApplicationTelemetry`は注文処理と管理操作を次のイベントとして記録します。
 
 | イベント | レベル | 記録する属性 |
 | --- | --- | --- |
 | `OrderConfirmed` | `INFO` | 注文番号、商品数、送料区分、合計金額 |
 | `OrderRejectedOutOfStock` | `WARN` | ワインID、要求数量、利用可能在庫数 |
+| `AdminOrderStatusChanged` | `INFO` | 注文ID、変更前ステータス、変更後ステータス |
+| `AdminInventoryUpdated` | `INFO` | ワインID、変更前後の在庫数と発注点 |
+| `AdminWineCreated` | `INFO` | ワインID、初期在庫数 |
+| `AdminPurchaseOrderCreated` | `INFO` | 発注ID、ワインID、発注数、納品予定日 |
+| `AdminPurchaseOrderReceived` | `INFO` | 発注ID、ワインID、発注数、変更前後の在庫数 |
 
 属性はSLF4J MDCに設定され、Application Insightsでは`customDimensions`として参照できます。MDCはログ出力後に必ず削除し、同じスレッドで処理される後続要求へ値が残らないようにしています。
 
@@ -108,6 +118,11 @@ Micrometerのグローバルレジストリへ次のメトリックを記録し�
 | `wine.orders.stock_rejected` | `wine_orders_stock_rejected` | カウンター | 在庫不足による拒否件数 |
 | `wine.orders.total` | `wine_orders_total` | 分布サマリー | 注文合計金額、単位JPY |
 | `wine.orders.items` | `wine_orders_items` | 分布サマリー | 1注文あたりの商品数 |
+| `wine.admin.order_status_updates` | `wine_admin_order_status_updates` | カウンター | 管理画面からの注文ステータス更新件数 |
+| `wine.admin.inventory_updates` | `wine_admin_inventory_updates` | カウンター | 管理画面からの在庫更新件数 |
+| `wine.admin.wines_created` | `wine_admin_wines_created` | カウンター | 管理画面からの商品登録件数 |
+| `wine.admin.purchase_orders_created` | `wine_admin_purchase_orders_created` | カウンター | 管理画面からの発注件数 |
+| `wine.admin.purchase_orders_received` | `wine_admin_purchase_orders_received` | カウンター | 管理画面からの受取件数 |
 
 メトリックには注文番号やワインIDなどの高カーディナリティ属性を付与していません。注文単位の調査には構造化ログを使用します。
 
@@ -120,6 +135,23 @@ Micrometerのグローバルレジストリへ次のメトリックを記録し�
 - 配送先住所
 
 注文番号は顧客情報を直接含まないランダムな業務識別子として、注文確定ログにのみ記録します。ログメッセージを追加する場合も、`CheckoutRequest`や`CustomerOrder`全体を出力しないでください。
+
+### 管理画面のブラウザテレメトリ
+
+管理画面は`admin-frontend/src/shared/telemetry.js`で`@microsoft/applicationinsights-web` 3.4.3を初期化します。`VITE_APPLICATIONINSIGHTS_CONNECTION_STRING`が設定されている場合だけ有効になり、Cookieは無効です。初期表示の`Admin Dashboard`とビュー切り替え時のページ表示、Fetch依存関係、未処理JavaScript例外に加え、次のカスタムイベントを記録します。
+
+| イベント | プロパティ |
+| --- | --- |
+| `AdminApiFailure` | API操作名、HTTPステータスまたは`network_error` |
+| `AdminOrderStatusUpdated` | 変更前・変更後ステータス |
+| `AdminInventoryUpdated` | 更新後が低在庫か通常在庫かを表す区分 |
+| `AdminWineCreated` | 初期在庫数の区分 |
+| `AdminPurchaseOrderCreated` | 発注数の区分 |
+| `AdminPurchaseOrderReceived` | 受取数の区分 |
+
+ユーザーID、顧客名、注文番号、商品ID、商品名、画像ファイル名、画像内容はイベントプロパティへ含めません。数量や在庫は生の値ではなく、低カーディナリティの区分として送信します。
+
+接続文字列はViteビルド時に公開JavaScriptへ含まれます。これはブラウザSDKで想定された識別情報であり認証シークレットではありませんが、APIキーや資格情報は同じ環境変数へ追加しないでください。
 
 ## 確認用KQL
 
@@ -143,6 +175,37 @@ traces
 | where cloud_RoleName == "wine-api"
 | where customDimensions.["event.name"] in ("OrderConfirmed", "OrderRejectedOutOfStock")
 | project timestamp, severityLevel, message, customDimensions, operation_Id
+| order by timestamp desc
+```
+
+### 管理操作イベント
+
+```kusto
+traces
+| where timestamp > ago(30m)
+| where cloud_RoleName == "wine-api"
+| where customDimensions.["event.name"] in ("AdminOrderStatusChanged", "AdminInventoryUpdated", "AdminWineCreated", "AdminPurchaseOrderCreated", "AdminPurchaseOrderReceived")
+| project timestamp, message, customDimensions, operation_Id
+| order by timestamp desc
+```
+
+### 管理画面のブラウザイベント
+
+```kusto
+customEvents
+| where timestamp > ago(30m)
+| where name in ("AdminApiFailure", "AdminOrderStatusUpdated", "AdminInventoryUpdated", "AdminWineCreated", "AdminPurchaseOrderCreated", "AdminPurchaseOrderReceived")
+| project timestamp, name, customDimensions, operation_Id, session_Id
+| order by timestamp desc
+```
+
+### 管理画面のページ表示とAPI依存関係
+
+```kusto
+union
+    (pageViews | project timestamp, itemType, name, success, duration, operation_Id),
+    (dependencies | where type == "Ajax" | project timestamp, itemType, name, success, duration, operation_Id)
+| where timestamp > ago(30m)
 | order by timestamp desc
 ```
 
@@ -177,7 +240,7 @@ traces
 customMetrics
 | where timestamp > ago(30m)
 | where cloud_RoleName == "wine-api"
-| where name startswith "wine_orders_"
+| where name startswith "wine_orders_" or name startswith "wine_admin_"
 | summarize value=sum(value) by name, bin(timestamp, 5m)
 | order by timestamp desc
 ```
@@ -234,6 +297,8 @@ Azureへ反映する場合は通常のデプロイスクリプトを使用しま
 - カスタムメトリックは別途課金対象になる場合があります。メトリック名やディメンションを追加する前に用途を確認してください。
 - LogbackログはLog AnalyticsとApplication Insightsの両方へ入るため、ログ量と保持期間を定期的に確認してください。
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`がないローカル実行では、Application Insightsへの送信は行われません。
+- `VITE_APPLICATIONINSIGHTS_CONNECTION_STRING`がない管理画面では、ブラウザテレメトリの送信は行われません。API側の収集には影響しません。
+- 現在のAzure IaCは管理画面をデプロイしないため、ブラウザテレメトリはローカルまたは別途ビルドした管理画面で接続文字列を設定した場合だけ送信されます。
 - Application Insights Javaエージェントのバージョン更新時は、DockerfileのバージョンとSHA-256を同時に更新し、バックエンドテストとDockerビルドを実行してください。
 
 ## 関連ファイル
@@ -245,10 +310,13 @@ Azureへ反映する場合は通常のデプロイスクリプトを使用しま
 - `backend/src/main/java/com/example/wine/controller/ApiExceptionHandler.java`: HTTP例外の一元ログと応答
 - `backend/src/main/java/com/example/wine/telemetry/ApplicationLifecycleTelemetry.java`: 起動完了と正常停止開始のログ
 - `backend/src/main/java/com/example/wine/controller/OrderController.java`: 注文処理からの計測呼び出し
+- `backend/src/main/java/com/example/wine/admin`: 管理APIと管理操作からの計測呼び出し
+- `admin-frontend/src/shared/telemetry.js`: Browser SDK初期化とプライバシーを保ったカスタムイベント
 - `infra/modules/foundation.bicep`: Application InsightsとLog Analyticsの作成
 - `infra/modules/container-apps.bicep`: 接続文字列とContainer Appsログ送信先の設定
 
 ## 参考資料
 
+- [トラブルシューティングガイド](troubleshooting.md)
 - [Application InsightsでOpenTelemetryを有効にする](https://learn.microsoft.com/azure/azure-monitor/app/opentelemetry-enable)
 - [Application Insights Javaエージェントの構成](https://learn.microsoft.com/azure/azure-monitor/app/java-standalone-config)

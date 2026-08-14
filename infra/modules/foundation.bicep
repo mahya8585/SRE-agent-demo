@@ -44,6 +44,100 @@ resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-3
   tags: tags
 }
 
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: 'azst${resourceToken}'
+  location: location
+  tags: tags
+  sku: { name: 'Standard_ZRS' }
+  kind: 'StorageV2'
+  properties: {
+    accessTier: 'Hot'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    publicNetworkAccess: 'Disabled'
+    supportsHttpsTrafficOnly: true
+    networkAcls: {
+      bypass: 'None'
+      defaultAction: 'Deny'
+    }
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    containerDeleteRetentionPolicy: { enabled: true, days: 7 }
+    deleteRetentionPolicy: { enabled: true, days: 7 }
+  }
+}
+
+resource wineImagesContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'wine-images'
+  properties: { publicAccess: 'None' }
+}
+
+resource apiBlobDataContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, apiIdentity.id, 'StorageBlobDataContributor')
+  scope: storage
+  properties: {
+    principalId: apiIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  }
+}
+
+resource blobPrivateDns 'Microsoft.Network/privateDnsZones@2024-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+  tags: tags
+}
+
+resource blobPrivateDnsLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+  parent: blobPrivateDns
+  name: 'azstlink${resourceToken}'
+  location: 'global'
+  tags: tags
+  properties: {
+    registrationEnabled: false
+    virtualNetwork: { id: virtualNetworkId }
+  }
+}
+
+resource blobPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+  name: 'azpest${resourceToken}'
+  location: location
+  tags: tags
+  properties: {
+    subnet: { id: privateEndpointSubnetId }
+    privateLinkServiceConnections: [
+      {
+        name: 'blob-storage'
+        properties: {
+          privateLinkServiceId: storage.id
+          groupIds: [ 'blob' ]
+        }
+      }
+    ]
+  }
+}
+
+resource blobDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+  parent: blobPrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'blob-storage'
+        properties: { privateDnsZoneId: blobPrivateDns.id }
+      }
+    ]
+  }
+}
+
 resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(registry.id, pullIdentity.id, 'AcrPull')
   scope: registry
@@ -140,4 +234,8 @@ output registryName string = registry.name
 output registryLoginServer string = registry.properties.loginServer
 output pullIdentityId string = pullIdentity.id
 output apiIdentityId string = apiIdentity.id
+output apiIdentityClientId string = apiIdentity.properties.clientId
 output keyVaultName string = keyVault.name
+output storageAccountName string = storage.name
+output blobEndpoint string = storage.properties.primaryEndpoints.blob
+output wineImagesContainerName string = wineImagesContainer.name

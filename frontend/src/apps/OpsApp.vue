@@ -131,7 +131,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { ArrowLeft, ArrowRight, Check, LoaderCircle, Minus, Plus, ShoppingBag, Trash2, X } from '@lucide/vue';
-import { getJson, postJson } from '../shared/api';
+import { getJson, postJson, resolveApiUrl } from '../shared/api';
 
 const wines = ref([]);
 const loading = ref(true);
@@ -148,7 +148,12 @@ const confirmation = ref({});
 const checkout = reactive({ customerName: '', email: '', address: '' });
 
 const formatPrice = (value) => `¥${Number(value || 0).toLocaleString('ja-JP')}`;
-const resolveImageUrl = (imagePath) => !imagePath ? '/assets/wines/placeholder.svg' : (/^https?:\/\//.test(imagePath) || imagePath.startsWith('/')) ? imagePath : `/assets/wines/${imagePath}`;
+const resolveImageUrl = (imagePath) => {
+  if (!imagePath) return '/assets/wines/placeholder.svg';
+  if (/^https?:\/\//.test(imagePath)) return imagePath;
+  if (imagePath.startsWith('/api/')) return resolveApiUrl(imagePath);
+  return imagePath.startsWith('/') ? imagePath : `/assets/wines/${imagePath}`;
+};
 const onImageError = (event) => { event.target.src = '/assets/wines/placeholder.svg'; };
 const wineDescription = (wine) => ({
   Red: '熟した果実の奥にスパイスと樽のニュアンス。静かな余韻が長く続く、食卓の主役となる一本です。',

@@ -17,6 +17,7 @@ const requestJson = async (path, options = {}) => {
 };
 
 export const getJson = (path) => requestJson(path);
+export const resolveApiUrl = (path) => `${apiBaseUrl}${path}`;
 export const postJson = (path, body) => requestJson(path, {
   method: 'POST',
   headers: body ? { 'Content-Type': 'application/json' } : undefined,

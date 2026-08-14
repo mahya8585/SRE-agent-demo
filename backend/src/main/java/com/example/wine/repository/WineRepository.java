@@ -15,4 +15,10 @@ public interface WineRepository extends JpaRepository<Wine, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select wine from Wine wine where wine.id = :id")
 	Optional<Wine> findByIdForUpdate(@Param("id") Long id);
+
+	@Query("select count(wine) from Wine wine where wine.stock <= wine.threshold")
+	long countLowStockWines();
+
+	@Query("select coalesce(sum(wine.stock), 0) from Wine wine")
+	long calculateTotalStock();
 }

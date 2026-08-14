@@ -74,10 +74,13 @@ module apps 'modules/container-apps.bicep' = {
     registryName: foundation.outputs.registryName
     pullIdentityId: foundation.outputs.pullIdentityId
     apiIdentityId: foundation.outputs.apiIdentityId
+    apiIdentityClientId: foundation.outputs.apiIdentityClientId
     keyVaultName: foundation.outputs.keyVaultName
     postgresServerFqdn: database.outputs.serverFqdn
     postgresDatabaseName: database.outputs.databaseName
     applicationInsightsConnectionString: foundation.outputs.applicationInsightsConnectionString
+    blobEndpoint: foundation.outputs.blobEndpoint
+    wineImagesContainerName: foundation.outputs.wineImagesContainerName
     storeImage: useBootstrap ? bootstrapImage : '${foundation.outputs.registryLoginServer}/maison-vigne-store:${imageTag}'
     apiImage: useBootstrap ? bootstrapImage : '${foundation.outputs.registryLoginServer}/wine-api:${imageTag}'
     bootstrapMode: useBootstrap
@@ -100,6 +103,7 @@ output resourceGroupName string = resourceGroup.name
 output registryName string = foundation.outputs.registryName
 output registryLoginServer string = foundation.outputs.registryLoginServer
 output keyVaultName string = foundation.outputs.keyVaultName
+output storageAccountName string = foundation.outputs.storageAccountName
 output postgresServerName string = database.outputs.serverName
 output operationsUrl string = apps.outputs.storeUrl
 output apiUrl string = apps.outputs.apiUrl

@@ -8,11 +8,18 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+
 @Component
 public class ApplicationTelemetry {
     private static final Logger logger = LoggerFactory.getLogger(ApplicationTelemetry.class);
     private static final Counter confirmedOrders = Metrics.counter("wine.orders.confirmed");
     private static final Counter stockRejections = Metrics.counter("wine.orders.stock_rejected");
+    private static final Counter adminOrderStatusUpdates = Metrics.counter("wine.admin.order_status_updates");
+    private static final Counter adminInventoryUpdates = Metrics.counter("wine.admin.inventory_updates");
+    private static final Counter adminWinesCreated = Metrics.counter("wine.admin.wines_created");
+    private static final Counter adminPurchaseOrdersCreated = Metrics.counter("wine.admin.purchase_orders_created");
+    private static final Counter adminPurchaseOrdersReceived = Metrics.counter("wine.admin.purchase_orders_received");
     private static final DistributionSummary orderTotal = DistributionSummary.builder("wine.orders.total")
             .baseUnit("JPY")
             .register(Metrics.globalRegistry);
@@ -55,6 +62,94 @@ public class ApplicationTelemetry {
         }
     }
 
+    public void adminOrderStatusChanged(Long orderId, String previousStatus, String newStatus) {
+        adminOrderStatusUpdates.increment();
+        MDC.put("event.name", "AdminOrderStatusChanged");
+        MDC.put("order.id", Long.toString(orderId));
+        MDC.put("order.previous_status", previousStatus);
+        MDC.put("order.new_status", newStatus);
+        try {
+            logger.info("Admin changed order status: orderId={}, previousStatus={}, newStatus={}",
+                    orderId, previousStatus, newStatus);
+        } finally {
+            MDC.remove("event.name");
+            MDC.remove("order.id");
+            MDC.remove("order.previous_status");
+            MDC.remove("order.new_status");
+        }
+    }
+
+    public void adminInventoryUpdated(Long wineId, int previousStock, int newStock,
+                                      int previousThreshold, int newThreshold) {
+        adminInventoryUpdates.increment();
+        MDC.put("event.name", "AdminInventoryUpdated");
+        MDC.put("wine.id", Long.toString(wineId));
+        MDC.put("stock.previous", Integer.toString(previousStock));
+        MDC.put("stock.current", Integer.toString(newStock));
+        MDC.put("threshold.previous", Integer.toString(previousThreshold));
+        MDC.put("threshold.current", Integer.toString(newThreshold));
+        try {
+            logger.info("Admin updated inventory: wineId={}, stock={} -> {}, threshold={} -> {}",
+                    wineId, previousStock, newStock, previousThreshold, newThreshold);
+        } finally {
+            MDC.remove("event.name");
+            MDC.remove("wine.id");
+            MDC.remove("stock.previous");
+            MDC.remove("stock.current");
+            MDC.remove("threshold.previous");
+            MDC.remove("threshold.current");
+        }
+    }
+
+    public void adminWineCreated(Long wineId, int initialStock) {
+        adminWinesCreated.increment();
+        MDC.put("event.name", "AdminWineCreated");
+        MDC.put("wine.id", Long.toString(wineId));
+        MDC.put("stock.initial", Integer.toString(initialStock));
+        try {
+            logger.info("Admin created wine: wineId={}, initialStock={}", wineId, initialStock);
+        } finally {
+            MDC.remove("event.name");
+            MDC.remove("wine.id");
+            MDC.remove("stock.initial");
+        }
+    }
+
+    public void adminPurchaseOrderCreated(Long purchaseOrderId, Long wineId, int quantity,
+                                          LocalDate deliveryDate) {
+        adminPurchaseOrdersCreated.increment();
+        MDC.put("event.name", "AdminPurchaseOrderCreated");
+        MDC.put("purchase_order.id", Long.toString(purchaseOrderId));
+        MDC.put("wine.id", Long.toString(wineId));
+        MDC.put("purchase_order.quantity", Integer.toString(quantity));
+        MDC.put("purchase_order.delivery_date", deliveryDate.toString());
+        try {
+            logger.info("Admin created purchase order: purchaseOrderId={}, wineId={}, quantity={}, deliveryDate={}",
+                    purchaseOrderId, wineId, quantity, deliveryDate);
+        } finally {
+            clearPurchaseOrderContext();
+        }
+    }
+
+    public void adminPurchaseOrderReceived(Long purchaseOrderId, Long wineId, int quantity,
+                                           int previousStock, int newStock) {
+        adminPurchaseOrdersReceived.increment();
+        MDC.put("event.name", "AdminPurchaseOrderReceived");
+        MDC.put("purchase_order.id", Long.toString(purchaseOrderId));
+        MDC.put("wine.id", Long.toString(wineId));
+        MDC.put("purchase_order.quantity", Integer.toString(quantity));
+        MDC.put("stock.previous", Integer.toString(previousStock));
+        MDC.put("stock.current", Integer.toString(newStock));
+        try {
+            logger.info("Admin received purchase order: purchaseOrderId={}, wineId={}, quantity={}, stock={} -> {}",
+                    purchaseOrderId, wineId, quantity, previousStock, newStock);
+        } finally {
+            clearPurchaseOrderContext();
+            MDC.remove("stock.previous");
+            MDC.remove("stock.current");
+        }
+    }
+
     public void httpRequestFailed(int statusCode, String requestPath, Exception exception) {
         MDC.put("event.name", statusCode >= 500 ? "HttpRequestFailed" : "HttpRequestRejected");
         MDC.put("http.status_code", Integer.toString(statusCode));
@@ -81,5 +176,13 @@ public class ApplicationTelemetry {
         MDC.remove("order.number");
         MDC.remove("order.item_count");
         MDC.remove("order.shipping_type");
+    }
+
+    private void clearPurchaseOrderContext() {
+        MDC.remove("event.name");
+        MDC.remove("purchase_order.id");
+        MDC.remove("wine.id");
+        MDC.remove("purchase_order.quantity");
+        MDC.remove("purchase_order.delivery_date");
     }
 }
