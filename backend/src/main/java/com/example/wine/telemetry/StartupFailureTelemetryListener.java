@@ -37,9 +37,24 @@ public class StartupFailureTelemetryListener implements ApplicationListener<Appl
     }
 
     static boolean isExpectedStartupConnectionFailure(Throwable throwable) {
-        return ExceptionChainUtils.containsExceptionClass(throwable, "org.postgresql.util.PSQLException")
-                && ExceptionChainUtils.containsExceptionClass(throwable, "liquibase.exception.DatabaseException")
-                && ExceptionChainUtils.containsExceptionClass(throwable, "org.springframework.beans.factory.BeanCreationException");
+        return ExceptionChainUtils.containsExceptionClass(throwable, "liquibase.exception.DatabaseException")
+                && ExceptionChainUtils.containsExceptionClass(throwable, "org.springframework.beans.factory.BeanCreationException")
+                && containsPostgresConnectionException(throwable);
+    }
+
+    private static boolean containsPostgresConnectionException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if ("org.postgresql.util.PSQLException".equals(current.getClass().getName())
+                    && current instanceof java.sql.SQLException) {
+                String sqlState = ((java.sql.SQLException) current).getSQLState();
+                if (sqlState != null && sqlState.startsWith("08")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     static String summarizeExceptionChain(Throwable throwable) {
