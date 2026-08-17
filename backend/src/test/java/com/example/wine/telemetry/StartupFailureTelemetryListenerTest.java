@@ -27,6 +27,15 @@ class StartupFailureTelemetryListenerTest {
     }
 
     @Test
+    void doesNotTreatNonConnectionPostgresFailuresAsExpectedStartupFailures() {
+        PSQLException postgresException = new PSQLException("Unique violation.", PSQLState.UNIQUE_VIOLATION);
+        DatabaseException liquibaseException = new DatabaseException(postgresException);
+        BeanCreationException startupException = new BeanCreationException("liquibase", liquibaseException);
+
+        assertThat(StartupFailureTelemetryListener.isExpectedStartupConnectionFailure(startupException)).isFalse();
+    }
+
+    @Test
     void marksUnexpectedStartupFailuresAsNonExpected() {
         IllegalStateException startupException = new IllegalStateException("unexpected");
 
