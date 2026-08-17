@@ -387,6 +387,12 @@ StoreとAPIは`minReplicas: 0`でスケールゼロを許可します。アイ�
 
 継続的な低遅延が必要なら`minReplicas`を1以上にすることを検討します。ただし常時実行コストが増えるため、要件と費用を確認してから変更します。
 
+コスト要件で`minReplicas: 0`を維持する場合は、起動中ノイズと本障害を監視で分離します。
+
+- 起動失敗は`ApplicationStartupFailed`（`startup.failure.severity=expected_startup_failure`）として1起動1件で集約する。
+- 通知は`ApplicationReady`から`N`分（例: 5分）経過後も継続する`HttpRequestFailed`だけを対象にする。
+- `BeanCreationException`/`DatabaseException`/`PSQLException`の起動時連鎖は即時ページング対象にしない。
+
 ### 5xx、起動失敗、再起動が発生する
 
 Azureの推奨順序に従い、症状、Resource Health、ログ、メトリック、直前変更の順で確認します。
@@ -589,6 +595,16 @@ az bicep build --file infra/main.bicep
 - 対応: Flexible Serverを起動して`Ready`を確認し、APIリビジョンを再起動した。
 - 検証: APIリビジョンが`Healthy`かつ`Provisioned`となり、`GET /api/wines`はHTTP 200で6商品を返し、6商品すべてに説明文が存在した。
 - 再発防止: APIだけがタイムアウトする場合のFlexible Server状態確認、起動、APIリビジョン再起動、復旧確認手順を本書へ追加した。停止契機はアクティビティログと運用履歴で確認する。
+- 状態: 解決
+
+### 2026-08-17: APIコールドスタート時のPostgreSQL接続失敗がアラートノイズ化する
+
+- 症状・影響: コールドスタートごとに`PSQLException`→`DatabaseException`→`BeanCreationException`が記録され、同種の起動失敗が短時間に複数件通知される。
+- 原因・仮説: `minReplicas: 0`環境で起動直後のPrivate DNS解決/ネットワーク経路確立が間に合わず、Liquibase初期化で一時的にDB接続失敗する。
+- 証跡: 24時間で同一例外連鎖が周期的に発生し、後続リトライ成功後は`GET /api/wines`がHTTP 200で復旧した。
+- 対応: 起動失敗を`ApplicationStartupFailed`として1起動1件で記録し、既知連鎖は`expected_startup_failure`としてWARN集約へ変更した。監視クエリは`ApplicationReady`後`N`分経過しても継続する`HttpRequestFailed`のみ通知する運用へ更新した。
+- 検証: バックエンド単体テストを追加して既知例外連鎖の判定を確認し、監視用KQLを`docs/observability.md`へ反映した。
+- 再発防止: 起動中例外と起動後障害のアラート条件を分離し、既知の起動時接続失敗は集約指標として扱う。
 - 状態: 解決
 
 ### 2026-08-14: AdminのACRビルドが接続文字列とlockfileにより失敗する

@@ -234,6 +234,44 @@ traces
 | order by timestamp desc
 ```
 
+### 起動失敗（1起動1件に集約）
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where cloud_RoleName == "wine-api"
+| where customDimensions.["event.name"] == "ApplicationStartupFailed"
+| summarize failures=count(),
+    latest=max(timestamp)
+    by severity=tostring(customDimensions.["startup.failure.severity"]),
+       chain=tostring(customDimensions.["startup.failure.chain"]),
+       bin(timestamp, 1h)
+| order by latest desc
+```
+
+### 通知用: 起動後に継続する失敗だけ抽出（N分しきい値）
+
+`startupGrace`（例: 5分）以内の起動中失敗は除外し、起動後も継続する`HttpRequestFailed`だけを通知対象にします。
+
+```kusto
+let startupGrace = 5m;
+let latestReady = toscalar(
+    traces
+    | where timestamp > ago(24h)
+    | where cloud_RoleName == "wine-api"
+    | where customDimensions.["event.name"] == "ApplicationReady"
+    | summarize max(timestamp)
+);
+union traces, (exceptions | extend message = outerMessage)
+| where timestamp > ago(30m)
+| where cloud_RoleName == "wine-api"
+| where customDimensions.["event.name"] == "HttpRequestFailed"
+| where isnotnull(latestReady)
+| where timestamp > latestReady + startupGrace
+| summarize failures=count(), latest=max(timestamp) by path=tostring(customDimensions.["http.path"])
+| order by failures desc
+```
+
 ### カスタムメトリック
 
 ```kusto
