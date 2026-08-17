@@ -141,7 +141,7 @@ customMetrics
 
 ## 検証記録
 
-管理機能とBlob Storageを含む本番状態を2026年8月14日に確認しました。
+商品別説明、管理機能、Blob Storageを含む本番状態を2026年8月17日に確認しました。
 
 | 確認項目 | 結果 |
 | --- | --- |
@@ -149,14 +149,14 @@ customMetrics
 | 最終サブスクリプションデプロイ | 成功 |
 | Storeへの要求 | HTTP 200 |
 | Adminへの要求 | HTTP 200 |
-| `GET /api/wines` | HTTP 200、6商品 |
+| `GET /api/wines` | HTTP 200、6商品すべてに商品別説明あり |
 | `GET /api/admin/dashboard` | HTTP 200、期待する4項目 |
-| Container Apps | Store、Admin、APIが`Healthy`、タグ`20260814160104` |
+| Container Apps | Store、Admin、APIが`Healthy`、タグ`20260815173306` |
 | Blob Storage | 非公開、Private Link承認済み、Blob RBAC付与済み |
 | Azure SRE Agent | Australia Eastで`azsredepgzxcukhrdm`を維持 |
 | Operation PulseのEntra登録 | 0件 |
 | ACRリポジトリ`operation-pulse` | なし |
 
-同日のバックエンドテストは24件成功し、管理画面と販売サイトのローカルビルド、Bicepコンパイル、Azure Validate、What-If、3イメージのACRビルド、最終デプロイが成功しています。APIログで起動完了を確認し、Liquibase、Blob認証、DNS、認可の該当エラーはありませんでした。
+デプロイ前のバックエンドテストは24件成功し、管理画面と販売サイトのローカルビルド、Bicepコンパイル、Azure Validate、What-If、3イメージのACRビルド、最終デプロイが成功しています。検証時に停止していたPostgreSQL Flexible Serverを起動し、APIリビジョンを再起動した後、Liquibaseによる商品説明の変更とAPI応答を確認しました。
 
 デプロイ、ACRビルド、Container Apps、Azure CLIで問題が発生した場合は、[トラブルシューティングガイド](troubleshooting.md)を参照してください。

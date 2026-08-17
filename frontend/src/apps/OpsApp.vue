@@ -64,7 +64,7 @@
         <div class="detail-copy">
           <p class="section-kicker">{{ selectedWine.category }} / {{ selectedWine.vintage }}</p>
           <h2>{{ selectedWine.name }}</h2><p class="detail-origin">{{ selectedWine.region }} · {{ selectedWine.variety }}</p>
-          <p class="detail-description">{{ wineDescription(selectedWine) }}</p>
+          <p class="detail-description">{{ selectedWine.description || '造り手の哲学と土地の個性を映した、メゾン・ヴィーニュ選定の一本です。' }}</p>
           <dl class="wine-facts">
             <div><dt>産地</dt><dd>{{ selectedWine.region }}</dd></div>
             <div><dt>品種</dt><dd>{{ selectedWine.variety }}</dd></div>
@@ -155,12 +155,6 @@ const resolveImageUrl = (imagePath) => {
   return imagePath.startsWith('/') ? imagePath : `/assets/wines/${imagePath}`;
 };
 const onImageError = (event) => { event.target.src = '/assets/wines/placeholder.svg'; };
-const wineDescription = (wine) => ({
-  Red: '熟した果実の奥にスパイスと樽のニュアンス。静かな余韻が長く続く、食卓の主役となる一本です。',
-  White: '瑞々しい果実味と凛とした酸が重なり、ミネラルを感じる端正な余韻へと続きます。',
-  Sparkling: '繊細な泡立ちと華やかな香り。乾杯から食事の終わりまで寄り添う上品な味わいです。'
-}[wine.category] || '造り手の哲学と土地の個性を映した、メゾン・ヴィーニュ選定の一本です。');
-
 const cartItems = computed(() => cart.value.map((entry) => ({ ...entry, wine: wines.value.find((wine) => wine.id === entry.wineId) })).filter((entry) => entry.wine));
 const cartCount = computed(() => cart.value.reduce((total, item) => total + item.quantity, 0));
 const cartSubtotal = computed(() => cartItems.value.reduce((total, item) => total + item.wine.price * item.quantity, 0));

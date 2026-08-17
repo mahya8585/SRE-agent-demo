@@ -49,6 +49,7 @@ public class AdminInventoryService {
         wine.setVintage(trimToNull(request.getVintage()));
         String uploadedImagePath = imageService.store(image);
         wine.setImage(uploadedImagePath == null ? trimToNull(request.getImage()) : uploadedImagePath);
+        wine.setDescription(trimToNull(request.getDescription()));
         wine.setPrice(request.getPrice());
         wine.setStock(request.getStock());
         wine.setThreshold(0);
@@ -58,13 +59,14 @@ public class AdminInventoryService {
     }
 
     @Transactional
-    public AdminInventoryItem updateInventory(Long id, int stock, int threshold) {
+    public AdminInventoryItem updateInventory(Long id, int stock, int threshold, String description) {
         Wine wine = wineRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Wine not found"));
         int previousStock = wine.getStock();
         int previousThreshold = wine.getThreshold();
         wine.setStock(stock);
         wine.setThreshold(threshold);
+        wine.setDescription(trimToNull(description));
         Wine saved = wineRepository.save(wine);
         telemetry.adminInventoryUpdated(id, previousStock, stock, previousThreshold, threshold);
         return AdminInventoryItem.from(saved);

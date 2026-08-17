@@ -33,7 +33,8 @@ class AdminInventoryControllerTest {
 
     @Test
     void returnsInventory() throws Exception {
-        AdminInventoryItem item = new AdminInventoryItem(1L, "Château Lueur Noire", "Red", 24, 8, 7400.0);
+        AdminInventoryItem item = new AdminInventoryItem(1L, "Château Lueur Noire", "Red", 24, 8, 7400.0,
+            "黒系果実の凝縮感。");
         when(inventoryService.listInventory()).thenReturn(Collections.singletonList(item));
 
         mockMvc.perform(get("/api/admin/inventory"))
@@ -41,36 +42,40 @@ class AdminInventoryControllerTest {
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[0].name").value("Château Lueur Noire"))
                 .andExpect(jsonPath("$[0].stock").value(24))
-                .andExpect(jsonPath("$[0].threshold").value(8));
+                .andExpect(jsonPath("$[0].threshold").value(8))
+                .andExpect(jsonPath("$[0].description").value("黒系果実の凝縮感。"));
     }
 
     @Test
     void updatesInventoryLevels() throws Exception {
-        AdminInventoryItem item = new AdminInventoryItem(1L, "Château Lueur Noire", "Red", 30, 10, 7400.0);
-        when(inventoryService.updateInventory(1L, 30, 10)).thenReturn(item);
+        AdminInventoryItem item = new AdminInventoryItem(1L, "Château Lueur Noire", "Red", 30, 10, 7400.0,
+            "更新した説明");
+        when(inventoryService.updateInventory(1L, 30, 10, "更新した説明")).thenReturn(item);
 
         mockMvc.perform(put("/api/admin/inventory/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"stock\":30,\"threshold\":10}"))
+                        .content("{\"stock\":30,\"threshold\":10,\"description\":\"更新した説明\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stock").value(30))
-                .andExpect(jsonPath("$.threshold").value(10));
+                .andExpect(jsonPath("$.threshold").value(10))
+                .andExpect(jsonPath("$.description").value("更新した説明"));
     }
 
     @Test
     void createsWineWithInitialStock() throws Exception {
-        AdminInventoryItem item = new AdminInventoryItem(7L, "North Ridge", "Red", 18, 0, 5200.0);
+        AdminInventoryItem item = new AdminInventoryItem(7L, "North Ridge", "Red", 18, 0, 5200.0, "商品説明");
         when(inventoryService.createWine(org.mockito.ArgumentMatchers.any(CreateWineRequest.class))).thenReturn(item);
 
         mockMvc.perform(post("/api/admin/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"North Ridge\",\"category\":\"Red\",\"region\":\"Napa\","
                                 + "\"variety\":\"Merlot\",\"vintage\":\"2022\",\"image\":\"/wines/north-ridge.jpg\","
-                                + "\"price\":5200,\"stock\":18}"))
+                                + "\"description\":\"商品説明\",\"price\":5200,\"stock\":18}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(7))
                 .andExpect(jsonPath("$.name").value("North Ridge"))
-                .andExpect(jsonPath("$.stock").value(18));
+                .andExpect(jsonPath("$.stock").value(18))
+                .andExpect(jsonPath("$.description").value("商品説明"));
     }
 
     @Test
@@ -83,7 +88,7 @@ class AdminInventoryControllerTest {
 
             @Test
             void createsWineWithUploadedImage() throws Exception {
-            AdminInventoryItem item = new AdminInventoryItem(7L, "North Ridge", "Red", 18, 0, 5200.0);
+            AdminInventoryItem item = new AdminInventoryItem(7L, "North Ridge", "Red", 18, 0, 5200.0, null);
             when(inventoryService.createWine(
                 org.mockito.ArgumentMatchers.any(CreateWineRequest.class),
                 org.mockito.ArgumentMatchers.any(org.springframework.web.multipart.MultipartFile.class)))

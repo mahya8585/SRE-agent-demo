@@ -57,9 +57,9 @@ export const createWine = (wine, image) => {
   });
 };
 
-export const updateInventory = (id, stock, threshold) => request(`/api/admin/inventory/${id}`, 'UpdateInventory', {
+export const updateInventory = (id, stock, threshold, description) => request(`/api/admin/inventory/${id}`, 'UpdateInventory', {
   method: 'PUT',
-  body: JSON.stringify({ stock, threshold })
+  body: JSON.stringify({ stock, threshold, description })
 });
 
 export const getPurchaseOrders = () => request('/api/admin/purchase-orders', 'GetPurchaseOrders');

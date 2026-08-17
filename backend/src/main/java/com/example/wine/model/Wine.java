@@ -1,5 +1,6 @@
 package com.example.wine.model;
 
+import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
@@ -17,6 +18,8 @@ public class Wine {
     private String vintage;
     private String category;
     private String image;
+    @Column(length = 2000)
+    private String description;
     private Double price;
     private Integer stock;
     private Integer threshold;
@@ -35,6 +38,8 @@ public class Wine {
     public void setCategory(String category) { this.category = category; }
     public String getImage() { return image; }
     public void setImage(String image) { this.image = image; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public Double getPrice() { return price; }
     public void setPrice(Double price) { this.price = price; }
     public Integer getStock() { return stock; }

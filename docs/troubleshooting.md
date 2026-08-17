@@ -420,6 +420,32 @@ az monitor activity-log list --resource-group SREagent-lab --max-events 50 --out
 - 適用済みchange setと新しいSQLの互換性
 - DBの容量、接続数、フェイルオーバー・復元履歴
 
+StoreとAdminがHTTP 200でも、APIだけがタイムアウトし、Liquibaseの内側に`SocketTimeoutException: connect timed out`がある場合は、最初にFlexible Serverの状態を確認します。
+
+```powershell
+$PgName = '<POSTGRES_SERVER_NAME>'
+$ApiApp = '<API_CONTAINER_APP_NAME>'
+
+az postgres flexible-server show `
+    --resource-group SREagent-lab `
+    --name $PgName `
+    --query state `
+    --output tsv
+
+az postgres flexible-server start `
+    --resource-group SREagent-lab `
+    --name $PgName `
+    --only-show-errors
+
+az containerapp revision restart `
+    --resource-group SREagent-lab `
+    --name $ApiApp `
+    --revision '<LATEST_REVISION>' `
+    --only-show-errors
+```
+
+Flexible Serverが`Ready`になってからAPIリビジョンを再起動し、`/api/wines`のHTTP 200、最新リビジョンの`Healthy`、Liquibaseエラーの解消を確認します。サーバーが停止した理由はアクティビティログと運用履歴で別途確認し、状態だけから自動停止や利用者操作と断定しません。
+
 PostgreSQLはプライベート構成です。診断のために安易にパブリックアクセスを有効化せず、Azureコントロールプレーンと承認済みの一時VNet接続経路を使用します。適用済みchange setを書き換えず、新しい修正マイグレーションを追加します。
 
 ### 商品画像を登録または表示できない
@@ -553,6 +579,16 @@ az bicep build --file infra/main.bicep
 - 対応: Flexible Serverを起動し、状態が`Ready`になった後にWhat-Ifを再実行した。
 - 検証: What-Ifは9件作成、15件変更、削除0件として成功した。
 - 再発防止: デプロイ前確認へ`ServerStoppedError`時の起動・状態確認手順を追加した。
+- 状態: 解決
+
+### 2026-08-17: 停止中PostgreSQLにより本番APIがタイムアウトする
+
+- 症状・影響: StoreとAdminはHTTP 200だったが、APIルートと`GET /api/wines`がタイムアウトし、商品情報を取得できなかった。
+- 原因・仮説: PostgreSQL Flexible Serverが`Stopped`でAPIがDBへ接続できなかった。サーバーが停止した契機は未確定。
+- 証跡: APIリビジョン`azapidepgzxcukhrdm--0000009`のログでLiquibase初期化中の`PSQLException`と`SocketTimeoutException: connect timed out`を確認し、AzureコントロールプレーンでFlexible Serverの`Stopped`状態を確認した。
+- 対応: Flexible Serverを起動して`Ready`を確認し、APIリビジョンを再起動した。
+- 検証: APIリビジョンが`Healthy`かつ`Provisioned`となり、`GET /api/wines`はHTTP 200で6商品を返し、6商品すべてに説明文が存在した。
+- 再発防止: APIだけがタイムアウトする場合のFlexible Server状態確認、起動、APIリビジョン再起動、復旧確認手順を本書へ追加した。停止契機はアクティビティログと運用履歴で確認する。
 - 状態: 解決
 
 ### 2026-08-14: AdminのACRビルドが接続文字列とlockfileにより失敗する

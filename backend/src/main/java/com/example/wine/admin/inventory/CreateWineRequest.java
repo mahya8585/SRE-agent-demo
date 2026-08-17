@@ -27,6 +27,9 @@ public class CreateWineRequest {
     @Size(max = 512)
     private String image;
 
+    @Size(max = 2000)
+    private String description;
+
     @NotNull
     @DecimalMin("0.0")
     private Double price;
@@ -47,6 +50,8 @@ public class CreateWineRequest {
     public void setVintage(String vintage) { this.vintage = vintage; }
     public String getImage() { return image; }
     public void setImage(String image) { this.image = image; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public Double getPrice() { return price; }
     public void setPrice(Double price) { this.price = price; }
     public Integer getStock() { return stock; }

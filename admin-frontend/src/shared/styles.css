@@ -207,16 +207,20 @@ input[type='number'] { width: 84px; padding: 0 9px; font-family: 'DM Mono', mono
 select:focus, input:focus { outline: 2px solid #87a799; outline-offset: 1px; }
 .save-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 7px 10px; border: 0; color: #fff; background: var(--forest); cursor: pointer; white-space: nowrap; }
 .save-button:disabled { opacity: 0.5; cursor: wait; }
-.inventory-table { min-width: 620px; table-layout: fixed; }
-.inventory-table th:nth-child(1) { width: 34%; }
-.inventory-table th:nth-child(2) { width: 17%; }
-.inventory-table th:nth-child(3) { width: 17%; }
-.inventory-table th:nth-child(4) { width: 17%; }
-.inventory-table th:nth-child(5) { width: 15%; }
+.inventory-table { min-width: 980px; table-layout: fixed; }
+.inventory-table th:nth-child(1) { width: 20%; }
+.inventory-table th:nth-child(2) { width: 11%; }
+.inventory-table th:nth-child(3) { width: 12%; }
+.inventory-table th:nth-child(4) { width: 35%; }
+.inventory-table th:nth-child(5) { width: 11%; }
+.inventory-table th:nth-child(6) { width: 11%; }
+.inventory-table textarea { width: 100%; min-height: 68px; padding: 8px; resize: vertical; border: 1px solid #b9c2ba; color: var(--ink); background: #fff; font: inherit; line-height: 1.5; }
 .inventory-table th:last-child, .inventory-table td:last-child { position: sticky; right: 0; text-align: right; background: var(--paper); }
 .wine-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 24px; padding: 20px; border: 1px solid var(--line); background: #f1f4ef; }
 .wine-form label { display: grid; align-content: start; gap: 7px; color: var(--muted); font-size: 11px; }
-.wine-form input, .wine-form select { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #b9c2ba; color: var(--ink); background: #fff; font: inherit; }
+.wine-form input, .wine-form select, .wine-form textarea { width: 100%; min-width: 0; padding: 0 10px; border: 1px solid #b9c2ba; color: var(--ink); background: #fff; font: inherit; }
+.wine-form input, .wine-form select { height: 38px; }
+.wine-form textarea { padding-top: 9px; padding-bottom: 9px; resize: vertical; line-height: 1.5; }
 .wine-form input[type='number'] { width: 100%; }
 .wine-form .file-input { height: auto; padding: 6px; }
 .file-input::file-selector-button { margin-right: 10px; padding: 6px 10px; border: 0; color: #fff; background: var(--forest); cursor: pointer; }

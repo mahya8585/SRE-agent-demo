@@ -35,6 +35,7 @@ class AdminInventoryServiceTest {
         request.setVariety("Merlot");
         request.setVintage("2022");
         request.setImage("/assets/wines/north-ridge.jpg");
+        request.setDescription("  熟した果実と穏やかな樽香。  ");
         request.setPrice(5200.0);
         request.setStock(18);
         when(wineRepository.save(any(Wine.class))).thenAnswer(invocation -> {
@@ -51,6 +52,7 @@ class AdminInventoryServiceTest {
         assertThat(savedWine.getValue().getRegion()).isEqualTo("Napa");
         assertThat(savedWine.getValue().getVariety()).isEqualTo("Merlot");
         assertThat(savedWine.getValue().getVintage()).isEqualTo("2022");
+        assertThat(savedWine.getValue().getDescription()).isEqualTo("熟した果実と穏やかな樽香。");
         assertThat(savedWine.getValue().getStock()).isEqualTo(18);
         assertThat(savedWine.getValue().getThreshold()).isZero();
         assertThat(result.getId()).isEqualTo(7L);

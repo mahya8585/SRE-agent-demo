@@ -45,6 +45,7 @@ public class AdminInventoryController {
     @PutMapping("/{id}")
     public AdminInventoryItem updateInventory(@PathVariable Long id,
                                               @Valid @RequestBody InventoryUpdateRequest request) {
-        return inventoryService.updateInventory(id, request.getStock(), request.getThreshold());
+        return inventoryService.updateInventory(id, request.getStock(), request.getThreshold(),
+                request.getDescription());
     }
 }

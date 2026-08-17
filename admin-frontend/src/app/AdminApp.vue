@@ -156,6 +156,10 @@
             <input v-model.number="wineForm.stock" type="number" min="0" step="1" required :disabled="savingId === 'create-wine'">
           </label>
           <label class="field-span-2">
+            <span>商品説明</span>
+            <textarea v-model.trim="wineForm.description" rows="4" maxlength="2000" :disabled="savingId === 'create-wine'"></textarea>
+          </label>
+          <label class="field-span-2">
             <span>商品画像</span>
             <input ref="wineImageInput" class="file-input" type="file" accept="image/jpeg,image/png,image/webp" :disabled="savingId === 'create-wine'" @change="selectWineImage">
             <small>JPEG、PNG、WebP / 最大5MB</small>
@@ -170,16 +174,17 @@
         </form>
         <div class="table-scroll">
           <table class="inventory-table">
-            <thead><tr><th>商品名</th><th>カテゴリ</th><th>価格</th><th>在庫数</th><th><span class="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th>商品名</th><th>カテゴリ</th><th>価格</th><th>商品説明</th><th>在庫数</th><th><span class="sr-only">操作</span></th></tr></thead>
             <tbody>
               <tr v-for="item in inventory" :key="item.id">
                 <td><strong>{{ item.name }}</strong></td>
                 <td>{{ item.category }}</td>
                 <td>{{ formatCurrency(item.price) }}</td>
+                <td><textarea v-model.trim="item.description" rows="3" maxlength="2000" :disabled="savingId === item.id" :aria-label="`${item.name}の商品説明`"></textarea></td>
                 <td><input v-model.number="item.stock" type="number" min="0" :disabled="savingId === item.id" aria-label="在庫数"></td>
                 <td><button class="save-button" type="button" :disabled="savingId === item.id || item.stock < 0" @click="saveInventory(item)"><Save :size="16" aria-hidden="true" />保存</button></td>
               </tr>
-              <tr v-if="!loading && inventory.length === 0"><td colspan="5" class="empty-state">在庫商品はありません</td></tr>
+              <tr v-if="!loading && inventory.length === 0"><td colspan="6" class="empty-state">在庫商品はありません</td></tr>
             </tbody>
           </table>
         </div>
@@ -266,7 +271,7 @@ const orders = ref([]);
 const inventory = ref([]);
 const purchaseOrders = ref([]);
 const purchaseForm = ref({ wineId: '', quantity: 1 });
-const emptyWineForm = () => ({ name: '', category: '', region: '', variety: '', vintage: '', image: '', price: 0, stock: 0 });
+const emptyWineForm = () => ({ name: '', category: '', region: '', variety: '', vintage: '', image: '', description: '', price: 0, stock: 0 });
 const wineForm = ref(emptyWineForm());
 const wineImage = ref(null);
 const wineImageInput = ref(null);
@@ -361,7 +366,7 @@ const saveInventory = async (item) => {
   savingId.value = item.id;
   error.value = false;
   try {
-    Object.assign(item, await updateInventory(item.id, item.stock, item.threshold));
+    Object.assign(item, await updateInventory(item.id, item.stock, item.threshold, item.description));
     trackEvent('AdminInventoryUpdated', { stockState: item.stock <= item.threshold ? 'low' : 'normal' });
   } catch {
     error.value = true;
