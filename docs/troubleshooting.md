@@ -296,6 +296,27 @@ az account show --output table
 
 現在この環境で使用するサブスクリプションは、デプロイ前に必ず利用者が確認します。サービスプリンシパルで`infra/deploy.ps1`を実行する場合は、`-DeploymentPrincipalId`へオブジェクトIDを明示します。
 
+### Entra認証が応答待ちになりFoundryを呼び出せない
+
+APIキー認証を無効化したMicrosoft Foundryでは、Azure CLIまたは開発ツールのEntraセッションが必要です。`az account show`や`az login --use-device-code`が案内を表示せず応答待ちになる場合は、待機中のコマンドを中止し、利用者が操作できる端末で次を順に確認します。
+
+```powershell
+az version
+az login --use-device-code
+az account show --output table
+az account get-access-token --resource https://cognitiveservices.azure.com --query expiresOn --output tsv
+```
+
+アクセストークン本体やデバイスコードはログ、文書、チャットへ記録しません。認証後もFoundry呼び出しが失敗する場合は、対象リソースで`Cognitive Services OpenAI User`または必要な同等ロールが付与されていることと、プロジェクトのモデルデプロイ名を確認します。
+
+MAI ImageモデルはOpenAI互換の画像生成パスではなく、リソースの`services.ai.azure.com`エンドポイントにある専用APIを使用します。
+
+```text
+POST https://<RESOURCE_NAME>.services.ai.azure.com/mai/v1/images/generations
+```
+
+Bearerトークンは`https://cognitiveservices.azure.com/.default`スコープで取得します。要求にはデプロイ名を`model`として指定し、`width`と`height`を設定します。MAI Image APIの出力はPNGのBase64データであるため、アプリがJPEGパスを参照する場合は、デコード後に画像ライブラリでJPEGへ変換します。
+
 ## Azureデプロイ
 
 ### デプロイ前の確認
@@ -606,6 +627,16 @@ az bicep build --file infra/main.bicep
 - 対応: 起動失敗を`ApplicationStartupFailed`として1起動1件で記録し、既知連鎖は`expected_startup_failure`としてWARN集約へ変更した。さらに起動開始から`PT1M`の間は同一PostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`へ1回集約し、`ApplicationReady`以降は`HttpRequestFailed`を即時通知する運用へ更新した。
 - 検証: バックエンド単体テストを追加して既知例外連鎖の判定を確認し、監視用KQLを`docs/observability.md`へ反映した。
 - 再発防止: 起動中例外と起動後障害のアラート条件を分離し、既知の起動時接続失敗は集約指標として扱う。
+- 状態: 解決
+
+### 2026-08-17: Entra認証とAPIパスの不一致によりFoundry画像生成を開始できない
+
+- 症状・影響: APIキー認証を無効化したFoundryプロジェクトで、追加した14商品の画像生成を開始できなかった。
+- 原因・仮説: 初回はローカルのAzure CLIとVS CodeのEntra credential chainが認証情報を取得できなかった。サインイン後の試行では、Microsoft形式のMAI ImageデプロイにOpenAI互換の`/openai/v1/images/generations`を使用していたためHTTP 404になった。
+- 証跡: Foundry MCPのcredential chainとAzure CLIがタイムアウトした後、利用者の再サインインでAzure CLIが復旧した。`MAI-Image-2.5`デプロイが`Running`かつ`Succeeded`であることを確認し、OpenAI互換パスではHTTP 404、MAI専用パスでは生成に成功した。
+- 対応: Azure Developer CLIを1.31.1へ更新し、`microsoft.foundry`拡張1.0.0-beta.2と依存拡張を導入した。Entraサインイン後、`/mai/v1/images/generations`へ切り替え、返却PNGをJPEGへ変換した。
+- 検証: `MAI-Image-2.5`で14枚を生成し、全ファイルがJPEGとして読み取り可能で、768x1024ピクセルであることを確認した。
+- 再発防止: Entra認証の事前確認、トークン有効期限の安全な確認、必要ロール、モデル形式、MAI専用APIパスの確認手順を本書へ追加した。
 - 状態: 解決
 
 ### 2026-08-14: AdminのACRビルドが接続文字列とlockfileにより失敗する
