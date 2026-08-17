@@ -7,7 +7,9 @@ import org.springframework.boot.context.event.ApplicationFailedEvent;
 import org.springframework.context.ApplicationListener;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class StartupFailureTelemetryListener implements ApplicationListener<ApplicationFailedEvent> {
     private static final Logger logger = LoggerFactory.getLogger(StartupFailureTelemetryListener.class);
@@ -51,9 +53,11 @@ public class StartupFailureTelemetryListener implements ApplicationListener<Appl
     }
 
     private static List<String> collectExceptionClassNames(Throwable throwable) {
-        List<String> names = new ArrayList<String>();
+        List<String> names = new ArrayList<>();
+        Map<Throwable, Boolean> visited = new IdentityHashMap<>();
         Throwable current = throwable;
-        while (current != null) {
+        while (current != null && !visited.containsKey(current)) {
+            visited.put(current, Boolean.TRUE);
             String name = current.getClass().getName();
             if (!names.contains(name)) {
                 names.add(name);

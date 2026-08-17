@@ -4,6 +4,9 @@ import liquibase.exception.DatabaseException;
 import org.junit.jupiter.api.Test;
 import org.postgresql.util.PSQLState;
 import org.postgresql.util.PSQLException;
+import org.slf4j.MDC;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationFailedEvent;
 import org.springframework.beans.factory.BeanCreationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,5 +31,23 @@ class StartupFailureTelemetryListenerTest {
         IllegalStateException startupException = new IllegalStateException("unexpected");
 
         assertThat(StartupFailureTelemetryListener.isExpectedStartupConnectionFailure(startupException)).isFalse();
+        assertThat(StartupFailureTelemetryListener.summarizeExceptionChain(startupException))
+                .isEqualTo("java.lang.IllegalStateException");
+    }
+
+    @Test
+    void clearsMdcAfterHandlingStartupFailureEvent() {
+        StartupFailureTelemetryListener listener = new StartupFailureTelemetryListener();
+        ApplicationFailedEvent event = new ApplicationFailedEvent(
+                new SpringApplication(Object.class),
+                new String[0],
+                null,
+                new IllegalStateException("unexpected"));
+
+        listener.onApplicationEvent(event);
+
+        assertThat(MDC.get("event.name")).isNull();
+        assertThat(MDC.get("startup.failure.severity")).isNull();
+        assertThat(MDC.get("startup.failure.chain")).isNull();
     }
 }
