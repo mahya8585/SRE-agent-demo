@@ -249,27 +249,31 @@ traces
 | order by latest desc
 ```
 
-### 通知用: 起動後に継続する失敗だけ抽出（N分しきい値）
+### 通知用: 起動後障害は即時通知し、起動中の同一PostgreSQL失敗は集約
 
-`startupGrace`（例: 5分）以内の起動中失敗は除外し、起動後も継続する`HttpRequestFailed`だけを通知対象にします。
+アプリ側は起動開始から`app.telemetry.startup-failure-suppression-window`（初期値`PT1M`）の間、同一のPostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`として1回だけ記録します。`ApplicationReady`後のPostgreSQL失敗は`HttpRequestFailed`として即時通知対象です。
 
 ```kusto
-let startupGrace = 5m;
-let latestReady = toscalar(
-    traces
-    | where timestamp > ago(24h)
-    | where cloud_RoleName == "wine-api"
-    | where customDimensions.["event.name"] == "ApplicationReady"
-    | summarize max(timestamp)
-);
 union traces, (exceptions | extend message = outerMessage)
 | where timestamp > ago(30m)
 | where cloud_RoleName == "wine-api"
 | where customDimensions.["event.name"] == "HttpRequestFailed"
-| where isnotnull(latestReady)
-| where timestamp > latestReady + startupGrace
 | summarize failures=count(), latest=max(timestamp) by path=tostring(customDimensions.["http.path"])
 | order by failures desc
+```
+
+起動中に抑止された失敗は次で確認できます。
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where cloud_RoleName == "wine-api"
+| where customDimensions.["event.name"] == "HttpRequestSuppressedStartupFailure"
+| summarize suppressed=count(), latest=max(timestamp)
+    by chain=tostring(customDimensions.["startup.failure.chain"]),
+       path=tostring(customDimensions.["http.path"]),
+       bin(timestamp, 1h)
+| order by latest desc
 ```
 
 ### カスタムメトリック

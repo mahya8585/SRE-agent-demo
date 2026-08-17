@@ -390,7 +390,8 @@ StoreとAPIは`minReplicas: 0`でスケールゼロを許可します。アイ�
 コスト要件で`minReplicas: 0`を維持する場合は、起動中ノイズと本障害を監視で分離します。
 
 - 起動失敗は`ApplicationStartupFailed`（`startup.failure.severity=expected_startup_failure`）として1起動1件で集約する。
-- 通知は`ApplicationReady`から`N`分（例: 5分）経過後も継続する`HttpRequestFailed`だけを対象にする。
+- 起動開始から`N`分（初期設定: `app.telemetry.startup-failure-suppression-window=PT1M`）の間は、同一のPostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`として1回に集約し、重複通知を抑止する。
+- `Started ... in ...`（`ApplicationReady`）以降のPostgreSQL失敗は抑止せず、`HttpRequestFailed`として即時通知する。
 - `BeanCreationException`/`DatabaseException`/`PSQLException`の起動時連鎖は即時ページング対象にしない。
 
 ### 5xx、起動失敗、再起動が発生する
@@ -602,7 +603,7 @@ az bicep build --file infra/main.bicep
 - 症状・影響: コールドスタートごとに`PSQLException`→`DatabaseException`→`BeanCreationException`が記録され、同種の起動失敗が短時間に複数件通知される。
 - 原因・仮説: `minReplicas: 0`環境で起動直後のPrivate DNS解決/ネットワーク経路確立が間に合わず、Liquibase初期化で一時的にDB接続失敗する。
 - 証跡: 24時間で同一例外連鎖が周期的に発生し、後続リトライ成功後は`GET /api/wines`がHTTP 200で復旧した。
-- 対応: 起動失敗を`ApplicationStartupFailed`として1起動1件で記録し、既知連鎖は`expected_startup_failure`としてWARN集約へ変更した。監視クエリは`ApplicationReady`後`N`分経過しても継続する`HttpRequestFailed`のみ通知する運用へ更新した。
+- 対応: 起動失敗を`ApplicationStartupFailed`として1起動1件で記録し、既知連鎖は`expected_startup_failure`としてWARN集約へ変更した。さらに起動開始から`PT1M`の間は同一PostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`へ1回集約し、`ApplicationReady`以降は`HttpRequestFailed`を即時通知する運用へ更新した。
 - 検証: バックエンド単体テストを追加して既知例外連鎖の判定を確認し、監視用KQLを`docs/observability.md`へ反映した。
 - 再発防止: 起動中例外と起動後障害のアラート条件を分離し、既知の起動時接続失敗は集約指標として扱う。
 - 状態: 解決

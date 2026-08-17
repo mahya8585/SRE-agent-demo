@@ -26,6 +26,11 @@ public class ApplicationTelemetry {
     private static final DistributionSummary orderItems = DistributionSummary.builder("wine.orders.items")
             .baseUnit("items")
             .register(Metrics.globalRegistry);
+    private final StartupFailureSuppressionPolicy startupFailureSuppressionPolicy;
+
+    public ApplicationTelemetry(StartupFailureSuppressionPolicy startupFailureSuppressionPolicy) {
+        this.startupFailureSuppressionPolicy = startupFailureSuppressionPolicy;
+    }
 
     public void orderConfirmed(String orderNumber, int itemCount, double total, boolean freeShipping) {
         confirmedOrders.increment();
@@ -151,6 +156,31 @@ public class ApplicationTelemetry {
     }
 
     public void httpRequestFailed(int statusCode, String requestPath, Exception exception) {
+        if (statusCode >= 500 && startupFailureSuppressionPolicy.shouldSuppressPostgresFailure(exception)) {
+            String failureChain = ExceptionChainUtils.summarizeExceptionChain(exception);
+            if (!startupFailureSuppressionPolicy.tryRecordSuppressedFailure(failureChain)) {
+                return;
+            }
+            MDC.put("event.name", "HttpRequestSuppressedStartupFailure");
+            MDC.put("http.status_code", Integer.toString(statusCode));
+            MDC.put("http.path", requestPath);
+            MDC.put("exception.type", exception.getClass().getName());
+            MDC.put("startup.failure.severity", "expected_startup_failure");
+            MDC.put("startup.failure.chain", failureChain);
+            try {
+                logger.warn("Suppressed repeated PostgreSQL failure during startup grace window: status={}, path={}, failureChain={}",
+                        statusCode, requestPath, failureChain);
+            } finally {
+                MDC.remove("event.name");
+                MDC.remove("http.status_code");
+                MDC.remove("http.path");
+                MDC.remove("exception.type");
+                MDC.remove("startup.failure.severity");
+                MDC.remove("startup.failure.chain");
+            }
+            return;
+        }
+
         MDC.put("event.name", statusCode >= 500 ? "HttpRequestFailed" : "HttpRequestRejected");
         MDC.put("http.status_code", Integer.toString(statusCode));
         MDC.put("http.path", requestPath);

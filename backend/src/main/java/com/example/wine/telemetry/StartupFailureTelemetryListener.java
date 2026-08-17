@@ -6,11 +6,6 @@ import org.slf4j.MDC;
 import org.springframework.boot.context.event.ApplicationFailedEvent;
 import org.springframework.context.ApplicationListener;
 
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Map;
-
 public class StartupFailureTelemetryListener implements ApplicationListener<ApplicationFailedEvent> {
     private static final Logger logger = LoggerFactory.getLogger(StartupFailureTelemetryListener.class);
 
@@ -42,28 +37,12 @@ public class StartupFailureTelemetryListener implements ApplicationListener<Appl
     }
 
     static boolean isExpectedStartupConnectionFailure(Throwable throwable) {
-        List<String> chain = collectExceptionClassNames(throwable);
-        return chain.contains("org.postgresql.util.PSQLException")
-                && chain.contains("liquibase.exception.DatabaseException")
-                && chain.contains("org.springframework.beans.factory.BeanCreationException");
+        return ExceptionChainUtils.containsExceptionClass(throwable, "org.postgresql.util.PSQLException")
+                && ExceptionChainUtils.containsExceptionClass(throwable, "liquibase.exception.DatabaseException")
+                && ExceptionChainUtils.containsExceptionClass(throwable, "org.springframework.beans.factory.BeanCreationException");
     }
 
     static String summarizeExceptionChain(Throwable throwable) {
-        return String.join(" -> ", collectExceptionClassNames(throwable));
-    }
-
-    private static List<String> collectExceptionClassNames(Throwable throwable) {
-        List<String> names = new ArrayList<>();
-        Map<Throwable, Boolean> visited = new IdentityHashMap<>();
-        Throwable current = throwable;
-        while (current != null && !visited.containsKey(current)) {
-            visited.put(current, Boolean.TRUE);
-            String name = current.getClass().getName();
-            if (!names.contains(name)) {
-                names.add(name);
-            }
-            current = current.getCause();
-        }
-        return names;
+        return ExceptionChainUtils.summarizeExceptionChain(throwable);
     }
 }
