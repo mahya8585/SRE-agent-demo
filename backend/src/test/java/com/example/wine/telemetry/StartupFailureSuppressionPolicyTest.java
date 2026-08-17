@@ -25,6 +25,19 @@ class StartupFailureSuppressionPolicyTest {
     }
 
     @Test
+    void doesNotSuppressNonConnectionPostgresFailures() {
+        StartupFailureSuppressionPolicy policy = new StartupFailureSuppressionPolicy(
+                Duration.ofMinutes(1),
+                Clock.fixed(Instant.parse("2026-08-17T00:00:00Z"), ZoneOffset.UTC));
+
+        PSQLException postgresException = new PSQLException("Unique violation.", PSQLState.UNIQUE_VIOLATION);
+        DatabaseException liquibaseException = new DatabaseException(postgresException);
+        Throwable failure = new BeanCreationException("liquibase", liquibaseException);
+
+        assertThat(policy.shouldSuppressPostgresFailure(failure)).isFalse();
+    }
+
+    @Test
     void doesNotSuppressAfterApplicationReady() {
         StartupFailureSuppressionPolicy policy = new StartupFailureSuppressionPolicy(
                 Duration.ofMinutes(1),
