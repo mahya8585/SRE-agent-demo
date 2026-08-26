@@ -7,3 +7,5 @@ databaseChangeLog:
       file: db/changelog/004-remove-wine-images.sql
   - include:
       file: db/changelog/005-add-wine-description.sql
+  - include:
+      file: db/changelog/006-add-wine-catalog.sql

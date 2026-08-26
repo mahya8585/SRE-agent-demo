@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class StartupFailureSuppressionPolicy {
-    private static final String POSTGRES_EXCEPTION = "org.postgresql.util.PSQLException";
     private final Duration startupFailureSuppressionWindow;
     private final Clock clock;
     private final Instant startupStartedAt;
@@ -40,7 +39,7 @@ public class StartupFailureSuppressionPolicy {
     boolean shouldSuppressPostgresFailure(Throwable throwable) {
         return !isReady()
                 && Instant.now(clock).isBefore(startupStartedAt.plus(startupFailureSuppressionWindow))
-                && ExceptionChainUtils.containsExceptionClass(throwable, POSTGRES_EXCEPTION);
+                && StartupFailureTelemetryListener.containsPostgresConnectionException(throwable);
     }
 
     boolean tryRecordSuppressedFailure(String failureChain) {

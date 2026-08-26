@@ -42,7 +42,7 @@ public class StartupFailureTelemetryListener implements ApplicationListener<Appl
                 && containsPostgresConnectionException(throwable);
     }
 
-    private static boolean containsPostgresConnectionException(Throwable throwable) {
+    static boolean containsPostgresConnectionException(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
             if ("org.postgresql.util.PSQLException".equals(current.getClass().getName())
