@@ -579,9 +579,9 @@ az bicep build --file infra/main.bicep
 - 原因・仮説: API最新リビジョン`0000013`で`StartupFailureSuppressionPolicy`のBean生成に失敗した。テスト用を含む複数コンストラクターがある一方、注入対象が明示されておらず、Spring Boot 2.7.18が存在しない既定コンストラクターを探索した。Container Appsは正常化できない最新リビジョンではなく、古い初期画面のリビジョンを配信していた。
 - 証跡: 最新APIリビジョンは`ActivationFailed`かつ`ProcessExited`終了コード1、最新Readyは旧`0000010`だった。コンソールログに`BeanInstantiationException`、`No default constructor found`、`NoSuchMethodException`を確認した。Liquibaseはchange log lockを取得・解放し、PostgreSQLは`Ready`、直近の接続失敗メトリックは0だった。
 - 対応: 本番用コンストラクターへ`@Autowired`を追加し、SpringコンテキストがBeanを生成できる回帰テストを追加した。初期画面へのフォールバックとBean生成失敗の診断手順を本書へ追加した。
-- 検証: ローカルのバックエンド全34テストは失敗0、エラー0で成功し、追加したSpring Bean生成テストも成功した。`git diff --check`とMarkdownのコードフェンス整合性確認も成功した。Azureへの再デプロイと新リビジョンでのAPI応答確認は未実施。
+- 検証: ローカルのバックエンド全34テストは失敗0、エラー0で成功し、追加したSpring Bean生成テストも成功した。`git diff --check`とMarkdownのコードフェンス整合性確認も成功した。イメージタグ`20260901130252`をAzureへデプロイし、APIリビジョン`0000014`がHealthyかつRunningになった。Store商品APIと管理在庫APIはHTTP 200のJSONを返し、Storeは20商品、管理画面は受注件数・売上高・総在庫数を表示してエラーが解消した。新APIログで`WineDemoApplication`の起動完了を確認した。
 - 再発防止: コンストラクターを直接呼ぶ単体テストだけでなく、SpringによるBean生成を検証する。API確認ではHTTPステータスに加えてContent-Typeと本文、最新Readyリビジョンを照合する。
-- 状態: 修正済み・Azure未反映
+- 状態: 解決
 
 ### 2026-08-26: 管理画面から本番APIへアクセスできない
 
