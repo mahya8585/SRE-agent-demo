@@ -7,8 +7,9 @@ RUN npm install --ignore-scripts
 COPY . .
 
 ARG SITE=ops
-ARG VITE_API_BASE_URL=http://localhost:8081
+ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN test -n "$VITE_API_BASE_URL" || (echo 'VITE_API_BASE_URL build argument is required.' >&2; exit 1)
 RUN npm run build:${SITE} && cp -R dist/${SITE} /site
 
 FROM cgr.dev/chainguard/nginx:latest

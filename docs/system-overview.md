@@ -186,6 +186,7 @@ flowchart TB
     AdminCA --> CAE
     ApiCA --> CAE
     CAE --> LAW[Log Analytics]
+    AdminCA --> AI[Application Insights]
     ApiCA --> AI[Application Insights]
     SRE[Azure SRE Agent] --> AMW[Azure Monitor Workspace]
     SRE --> LAW
@@ -201,7 +202,7 @@ flowchart TB
 | Admin | <https://azadmdepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 | API | <https://azapidepgzxcukhrdm.livelyfield-29cce79e.japaneast.azurecontainerapps.io> |
 
-現在のBicepと`infra/deploy.ps1`はStore、Admin、APIの3つのContainer Appsを作成・更新します。AdminイメージにはAPI URLとApplication Insights Browser SDKの接続先をビルド時に設定し、APIのCORSにはStoreとAdminの両オリジンを設定します。
+現在のBicepと`infra/deploy.ps1`はStore、Admin、APIのContainer Appsを作成・更新します。フロントエンドのAPI URLはContainer Appの実行時環境変数ではなく、ACRビルド時の`VITE_API_BASE_URL`で成果物へ埋め込みます。
 
 Container Apps環境とStore・Admin・APIはConsumptionワークロードプロファイルを明示使用し、`minReplicas: 0`でスケールゼロを許可します。PostgreSQL、Key Vault、Blob Storageはプライベートネットワークを使用します。Blob Storageは共有キーと匿名アクセスを無効化し、APIのユーザー割り当てマネージドIDへ`Storage Blob Data Contributor`を付与します。
 
@@ -256,7 +257,7 @@ Azure Resource Managerの増分デプロイでは、テンプレートから削�
 
 ## 最終検証結果
 
-2026年8月14日の本番検証結果:
+2026年8月13日の本番検証結果:
 
 | 確認項目 | 結果 |
 | --- | --- |
@@ -264,21 +265,20 @@ Azure Resource Managerの増分デプロイでは、テンプレートから削�
 | Store | HTTP 200 |
 | `GET /api/wines` | HTTP 200、6商品 |
 | 廃止済み`GET /api/demo/incidents` | HTTP 404 |
-| Admin | HTTP 200 |
-| `GET /api/admin/dashboard` | HTTP 200、期待する4項目 |
-| Container Apps | Store、Admin、APIが`Healthy`、タグ`20260814160104` |
-| Blob Storage | 非公開設定、Private Link、Blob RBACを確認 |
+| Container Apps | StoreとAPIの2件のみ |
 | Azure SRE Agent | `azsredepgzxcukhrdm`をAustralia Eastで維持 |
 | PulseのEntra登録 | 0件 |
 | PulseのACRリポジトリ | なし |
 
-同日のバックエンドテストは24件成功し、販売サイトと管理画面のローカルビルド、Bicepコンパイル、Azure Validate、What-If、3イメージのACRビルドも成功しています。本番APIログでは起動完了を確認し、Liquibase、Blob認証、DNS、認可の該当エラーはありませんでした。
+管理機能とBlob Storage対応後の2026年8月14日の最新実行では、バックエンドの24テストが成功し、失敗・エラー・スキップはありません。管理画面と販売サイトのビルド、Bicepコンパイル、ローカルmultipart画像登録・取得も成功しています。
+
+上表の本番検証は2026年8月13日のデプロイを対象とします。当日はローカルの販売サイトビルドがnpmレジストリ応答待ちにより完了できませんでしたが、ACR上の販売サイトイメージビルド、Azureへのデプロイ、本番StoreのHTTP確認は成功しました。2026年8月26日時点では管理画面もデプロイ済みですが、API URLが誤って埋め込まれたイメージによるブラウザー側の接続失敗を確認しています。
 
 ## 既知の制約
 
 - 実決済と確認メール送信は未実装
 - 購入者認証と注文履歴参照は未実装
-- 管理画面と`/api/admin/**`の認証・認可は未実装。公開中の環境はデモ用途に限定し、実運用前にMicrosoft Entra IDなどで保護する必要がある
+- 管理画面と`/api/admin/**`の認証・認可は未実装。本番公開前にMicrosoft Entra IDなどで保護する必要がある
 - 注文ステータスは許可値を検証するが、状態遷移の順序は強制しない
 - Container Appsはスケールゼロのためコールドスタートが発生する
 - PostgreSQLは低コスト構成で、ゾーン冗長HAを使用しない

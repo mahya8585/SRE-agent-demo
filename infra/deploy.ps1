@@ -66,30 +66,69 @@ function Invoke-AcrBuild([string]$RegistryName, [string[]]$BuildArguments, [stri
     if ($LASTEXITCODE -ne 0 -or $runStatus -ne 'Succeeded') { throw "$FailureMessage Run ID: $runId; status: $runStatus" }
 }
 
+function Assert-HttpsUrl([string]$Value, [string]$Name) {
+    $uri = $null
+    if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -ne 'https' -or -not $uri.Host) {
+        throw "$Name must be an absolute HTTPS URL."
+    }
+}
+
+function Get-SingleResource([object[]]$Resources, [scriptblock]$Filter, [string]$Name) {
+    $matches = @($Resources | Where-Object $Filter)
+    if ($matches.Count -ne 1) { throw "Expected exactly one $Name resource, found $($matches.Count)." }
+    return $matches[0]
+}
+
 try {
-    Write-Parameters -Tag 'bootstrap'
     if ($ValidateOnly) {
+        Write-Parameters -Tag 'bootstrap'
         az deployment sub validate --name $deploymentName --location $Location --template-file $template --parameters "@$temporaryParameters" --only-show-errors | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Azure subscription deployment validation failed.' }
         Write-Output 'Azure validation succeeded. No resources were created.'
         return
     }
     if ($WhatIf) {
+        Write-Parameters -Tag $ImageTag
         az deployment sub what-if --name $deploymentName --location $Location --template-file $template --parameters "@$temporaryParameters" --only-show-errors
         if ($LASTEXITCODE -ne 0) { throw 'Azure subscription deployment what-if failed.' }
         return
     }
 
-    az deployment sub create --name "$deploymentName-bootstrap" --location $Location --template-file $template --parameters "@$temporaryParameters" --no-wait --only-show-errors --output none
-    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment failed.' }
-    az deployment sub wait --name "$deploymentName-bootstrap" --created --only-show-errors
-    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment wait failed.' }
-    $bootstrap = az deployment sub show --name "$deploymentName-bootstrap" --query properties.outputs -o json --only-show-errors | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment output retrieval failed.' }
-    $resourceGroupName = $bootstrap.resourceGroupName.value
-    $registryName = $bootstrap.registryName.value
-    $apiUrl = $bootstrap.apiUrl.value
-    $applicationInsightsConnectionString = az monitor app-insights component show --resource-group $resourceGroupName --app $bootstrap.applicationInsightsName.value --query connectionString -o tsv --only-show-errors
+    $resourceGroupExists = $null -ne (az group exists --name $ResourceGroupName --only-show-errors | Where-Object { $_ -eq 'true' })
+    $existingApps = @()
+    if ($resourceGroupExists) {
+        $existingApps = @(az containerapp list --resource-group $ResourceGroupName --output json --only-show-errors | ConvertFrom-Json)
+        if ($LASTEXITCODE -ne 0) { throw 'Existing Container Apps lookup failed.' }
+    }
+
+    if ($existingApps.Count -gt 0) {
+        $storeApp = Get-SingleResource -Resources $existingApps -Filter { $_.properties.template.containers[0].name -eq 'store' } -Name 'Store Container App'
+        $adminApp = Get-SingleResource -Resources $existingApps -Filter { $_.properties.template.containers[0].name -eq 'admin' } -Name 'Admin Container App'
+        $apiApp = Get-SingleResource -Resources $existingApps -Filter { $_.properties.template.containers[0].name -eq 'api' } -Name 'API Container App'
+        $registry = Get-SingleResource -Resources @(az acr list --resource-group $ResourceGroupName --output json --only-show-errors | ConvertFrom-Json) -Filter { $_.tags.application -eq 'maison-vigne' } -Name 'Azure Container Registry'
+        if ($LASTEXITCODE -ne 0) { throw 'Existing registry lookup failed.' }
+        $applicationInsights = Get-SingleResource -Resources @(az resource list --resource-group $ResourceGroupName --resource-type 'Microsoft.Insights/components' --output json --only-show-errors | ConvertFrom-Json) -Filter { $_.tags.application -eq 'maison-vigne' } -Name 'Application Insights'
+        if ($LASTEXITCODE -ne 0) { throw 'Existing Application Insights lookup failed.' }
+        $resourceGroupName = $ResourceGroupName
+        $registryName = $registry.name
+        $apiUrl = "https://$($apiApp.properties.configuration.ingress.fqdn)"
+        $applicationInsightsName = $applicationInsights.name
+    }
+    else {
+        Write-Parameters -Tag 'bootstrap'
+        az deployment sub create --name "$deploymentName-bootstrap" --location $Location --template-file $template --parameters "@$temporaryParameters" --no-wait --only-show-errors --output none
+        if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment failed.' }
+        az deployment sub wait --name "$deploymentName-bootstrap" --created --only-show-errors
+        if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment wait failed.' }
+        $bootstrap = az deployment sub show --name "$deploymentName-bootstrap" --query properties.outputs -o json --only-show-errors | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { throw 'Bootstrap deployment output retrieval failed.' }
+        $resourceGroupName = $bootstrap.resourceGroupName.value
+        $registryName = $bootstrap.registryName.value
+        $apiUrl = $bootstrap.apiUrl.value
+        $applicationInsightsName = $bootstrap.applicationInsightsName.value
+    }
+    Assert-HttpsUrl -Value $apiUrl -Name 'API URL'
+    $applicationInsightsConnectionString = az monitor app-insights component show --resource-group $resourceGroupName --app $applicationInsightsName --query connectionString -o tsv --only-show-errors
     if ($LASTEXITCODE -ne 0 -or -not $applicationInsightsConnectionString) { throw 'Application Insights connection string lookup failed.' }
     $applicationInsightsConnectionStringBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($applicationInsightsConnectionString))
 

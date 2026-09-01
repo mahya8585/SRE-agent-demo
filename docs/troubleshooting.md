@@ -48,7 +48,7 @@
 | --- | --- | --- |
 | APIが起動しない | APIコンソール、`mvn test` | コンパイル、ポート競合、設定、DB初期化 |
 | UIからAPIを呼べない | ブラウザー開発者ツール、API URL、CORS | API未起動、URL誤り、許可origin不足 |
-| 管理画面が本番URLで開かない | Adminリビジョン、ACRイメージ、Ingress | イメージビルド失敗、起動失敗、ターゲットポート不一致 |
+| 管理画面だけ本番APIを呼べない | `AppEvents`、ブラウザーNetwork、ACRビルド引数 | `VITE_API_BASE_URL`未指定、古いイメージ |
 | 商品画像を登録・表示できない | API応答、Blob Storage、ファイル形式 | 形式・サイズ違反、マネージドID、Private DNS、RBAC |
 | Application Insightsに何もない | 接続文字列、Javaエージェント、取り込み待ち | 接続文字列だけ設定、エージェント未起動、対象トラフィックなし |
 | ブラウザテレメトリだけない | Vite環境変数、ビルド時設定 | 接続文字列未設定、設定後に未再起動・未再ビルド |
@@ -105,6 +105,33 @@ Invoke-RestMethod http://localhost:8081/api/admin/inventory
 
 ローカルの既定CORS設定はStoreと管理画面を許可します。環境変数を変更した場合はAPIを再起動します。Vite環境変数を変更した場合は、開発サーバーを再起動するか本番成果物を再ビルドします。
 
+#### Azure上で`AdminApiFailure`が`network_error`になる
+
+管理画面の`VITE_API_BASE_URL`はContainer Appの実行時環境変数ではなく、Viteのビルド時にJavaScriptへ埋め込まれます。Container Appへ後から同名の環境変数を追加しても、既存の成果物の接続先は変わりません。
+
+`AppEvents`に`AdminApiFailure`があり、`Properties.status`が`network_error`の場合は、ブラウザーがHTTP応答を受け取る前に失敗しています。ブラウザーのNetworkタブでRequest URLを確認し、`localhost:8081`や意図しないホストを指していないかを確認します。
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(30m)
+| where Name == "AdminApiFailure"
+| project TimeGenerated, operation=tostring(Properties.operation), status=tostring(Properties.status)
+| order by TimeGenerated desc
+```
+
+APIへ到達していない場合、バックエンド側の`AppRequests`、`AppExceptions`、`ContainerAppConsoleLogs_CL`には対応する要求や例外が記録されません。これはバックエンドテレメトリの欠落ではなく、障害の発生点がブラウザー側であるためです。
+
+復旧には、`infra/deploy.ps1`を使用して正しいAPI URLを渡した管理画面イメージを新しいタグで再ビルドし、そのタグを参照するContainer Appリビジョンをデプロイします。Dockerfileは`VITE_API_BASE_URL`が未指定ならビルドを失敗させます。手動ビルドする場合も必ず引数を指定します。
+
+```powershell
+docker build admin-frontend `
+    --build-arg VITE_API_BASE_URL=https://API_HOST `
+    --build-arg VITE_APPLICATIONINSIGHTS_CONNECTION_STRING_BASE64=$aiConnectionStringBase64 `
+    -t maison-vigne-admin:local
+```
+
+デプロイ後は、管理画面のNetworkタブで要求先が本番APIのHTTPS URLであること、管理APIが成功すること、新しい`AdminApiFailure`が発生しないことを確認します。
+
 ### npmの依存関係取得が進まない
 
 過去にローカルの販売サイトビルドがnpmレジストリ応答待ちで完了しない事象がありました。
@@ -122,7 +149,7 @@ npm install
 npm run build
 ```
 
-`node_modules`やロックファイルを無条件に削除すると依存関係が変わるため、原因が確認できるまでは削除しません。StoreとAPIのAzureデプロイが目的で、ローカルDockerまたはnpm取得だけが失敗している場合は、`infra/deploy.ps1`が行うACR上のLinuxビルドで検証できます。管理画面は現在のデプロイスクリプトに含まれないため、この代替経路ではビルドされません。
+`node_modules`やロックファイルを無条件に削除すると依存関係が変わるため、原因が確認できるまでは削除しません。Azureデプロイが目的で、ローカルDockerまたはnpm取得だけが失敗している場合は、`infra/deploy.ps1`が行うACR上のLinuxビルドでStore、管理画面、APIを検証できます。
 
 ### Docker DesktopでLinuxイメージをビルドできない
 
@@ -140,7 +167,7 @@ docker build backend -t wine-api:local
 docker build frontend --build-arg SITE=ops --build-arg VITE_API_BASE_URL=http://localhost:8081 -t maison-vigne-store:local
 ```
 
-ローカルエンジンを利用できない場合でも、StoreとAPIはAzure Container Registryビルドで検証できます。ACRビルドにはAzureへのサインイン、対象サブスクリプションへの権限、ネットワーク接続が必要です。
+ローカルエンジンを利用できない場合でも、Store、管理画面、APIはAzure Container Registryビルドで検証できます。ACRビルドにはAzureへのサインイン、対象サブスクリプションへの権限、ネットワーク接続が必要です。
 
 ## Application Insightsとログ
 
@@ -254,7 +281,7 @@ npm run build
 
 接続文字列は認証シークレットではありませんが、公開JavaScriptへ含まれます。APIキーや資格情報を同じ変数へ設定しません。設定変更後は開発サーバーの再起動または再ビルドが必要です。
 
-Azure上の管理画面でページ表示やイベントがない場合は、Admin Container Appの最新リビジョン、イメージタグ、HTTP応答を確認します。接続文字列はデプロイスクリプトがBase64化してACRビルドへ渡し、ビルドコンテナー内で復号します。
+Azure上に管理画面のページ表示やイベントがない場合は、管理Container Appの最新リビジョン、トラフィック、イメージタグを確認します。
 
 ## Azure CLIとリソース検索
 
@@ -296,27 +323,6 @@ az account show --output table
 
 現在この環境で使用するサブスクリプションは、デプロイ前に必ず利用者が確認します。サービスプリンシパルで`infra/deploy.ps1`を実行する場合は、`-DeploymentPrincipalId`へオブジェクトIDを明示します。
 
-### Entra認証が応答待ちになりFoundryを呼び出せない
-
-APIキー認証を無効化したMicrosoft Foundryでは、Azure CLIまたは開発ツールのEntraセッションが必要です。`az account show`や`az login --use-device-code`が案内を表示せず応答待ちになる場合は、待機中のコマンドを中止し、利用者が操作できる端末で次を順に確認します。
-
-```powershell
-az version
-az login --use-device-code
-az account show --output table
-az account get-access-token --resource https://cognitiveservices.azure.com --query expiresOn --output tsv
-```
-
-アクセストークン本体やデバイスコードはログ、文書、チャットへ記録しません。認証後もFoundry呼び出しが失敗する場合は、対象リソースで`Cognitive Services OpenAI User`または必要な同等ロールが付与されていることと、プロジェクトのモデルデプロイ名を確認します。
-
-MAI ImageモデルはOpenAI互換の画像生成パスではなく、リソースの`services.ai.azure.com`エンドポイントにある専用APIを使用します。
-
-```text
-POST https://<RESOURCE_NAME>.services.ai.azure.com/mai/v1/images/generations
-```
-
-Bearerトークンは`https://cognitiveservices.azure.com/.default`スコープで取得します。要求にはデプロイ名を`model`として指定し、`width`と`height`を設定します。MAI Image APIの出力はPNGのBase64データであるため、アプリがJPEGパスを参照する場合は、デコード後に画像ライブラリでJPEGへ変換します。
-
 ## Azureデプロイ
 
 ### デプロイ前の確認
@@ -333,7 +339,6 @@ az bicep build --file infra/main.bicep
 - Azure検証失敗: プロバイダー、リージョン、SKU、RBAC、ポリシー、クォータを確認します。
 - What-Ifに意図しない削除・再作成がある: デプロイせず、IaC差分を修正します。
 - ロール割り当て失敗: 実行主体にロール割り当てを作成する権限があるか確認します。
-- `ServerStoppedError`: PostgreSQL Flexible Serverを起動し、`Ready`を確認してからWhat-Ifを再実行します。
 
 ### ACRビルドが失敗する
 
@@ -350,9 +355,6 @@ az acr task logs --registry $RegistryName --run-id '<RUN_ID>'
 - Dockerfileのパスとビルドコンテキスト
 - Application Insights JavaエージェントのダウンロードとSHA-256検証
 - npmまたはMavenの依存関係取得
-- ビルド引数にセミコロンなどのシェル特殊文字を直接渡していないか
-- lockfileの`resolved`が開発環境固有のレジストリを指していないか
-- `.dockerignore`でローカル`node_modules`と`dist`を除外しているか
 - ACRの権限、ネットワーク、クォータ
 - 同じイメージタグの扱い
 
@@ -376,9 +378,11 @@ az containerapp revision list --name $ApiApp --resource-group SREagent-lab --out
 
 2026年8月13日の本番検証はStoreと当時のAPIを対象とします。翌日に追加した管理APIの本番反映は未検証です。過去の検証成功を、現在のコードがデプロイ済みである根拠にしません。
 
-### 管理画面を開けるがAPI操作を実行できない
+### 管理画面の新しいコードがAzureへ反映されない
 
-Admin Container App、API、CORSを順に確認します。APIの`CORS_ALLOWED_ORIGINS`にはStoreとAdminの完全なHTTPSオリジンが必要です。管理画面と`/api/admin/**`には認証・認可が未実装のため、現在の公開環境はデモ用途に限定します。実運用前にMicrosoft Entra IDなどで両方を保護します。
+管理画面はBicepと`infra/deploy.ps1`のデプロイ対象です。Store、管理画面、APIは同じ`ImageTag`でビルドされ、各Container Appへ適用されます。管理画面だけ古い場合は、管理イメージのACR Run ID、Container Appのイメージタグ、最新リビジョンへのトラフィック割り当てを照合します。
+
+管理画面と`/api/admin/**`のMicrosoft Entra ID認証・認可は未実装です。現在の公開環境はデモ用途に限定し、実運用前に保護してください。
 
 ### Bicepから削除したリソースがAzureに残る
 
@@ -407,13 +411,6 @@ StoreとAPIは`minReplicas: 0`でスケールゼロを許可します。アイ�
 ```
 
 継続的な低遅延が必要なら`minReplicas`を1以上にすることを検討します。ただし常時実行コストが増えるため、要件と費用を確認してから変更します。
-
-コスト要件で`minReplicas: 0`を維持する場合は、起動中ノイズと本障害を監視で分離します。
-
-- 起動失敗は`ApplicationStartupFailed`（`startup.failure.severity=expected_startup_failure`）として1起動1件で集約する。
-- 起動開始から`N`分（初期設定: `app.telemetry.startup-failure-suppression-window=PT1M`）の間は、同一のPostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`として1回に集約し、重複通知を抑止する。
-- `Started ... in ...`（`ApplicationReady`）以降のPostgreSQL失敗は抑止せず、`HttpRequestFailed`として即時通知する。
-- `BeanCreationException`/`DatabaseException`/`PSQLException`の起動時連鎖は即時ページング対象にしない。
 
 ### 5xx、起動失敗、再起動が発生する
 
@@ -447,32 +444,6 @@ az monitor activity-log list --resource-group SREagent-lab --max-events 50 --out
 - Key Vaultのシークレット参照とマネージドIDの権限
 - 適用済みchange setと新しいSQLの互換性
 - DBの容量、接続数、フェイルオーバー・復元履歴
-
-StoreとAdminがHTTP 200でも、APIだけがタイムアウトし、Liquibaseの内側に`SocketTimeoutException: connect timed out`がある場合は、最初にFlexible Serverの状態を確認します。
-
-```powershell
-$PgName = '<POSTGRES_SERVER_NAME>'
-$ApiApp = '<API_CONTAINER_APP_NAME>'
-
-az postgres flexible-server show `
-    --resource-group SREagent-lab `
-    --name $PgName `
-    --query state `
-    --output tsv
-
-az postgres flexible-server start `
-    --resource-group SREagent-lab `
-    --name $PgName `
-    --only-show-errors
-
-az containerapp revision restart `
-    --resource-group SREagent-lab `
-    --name $ApiApp `
-    --revision '<LATEST_REVISION>' `
-    --only-show-errors
-```
-
-Flexible Serverが`Ready`になってからAPIリビジョンを再起動し、`/api/wines`のHTTP 200、最新リビジョンの`Healthy`、Liquibaseエラーの解消を確認します。サーバーが停止した理由はアクティビティログと運用履歴で別途確認し、状態だけから自動停止や利用者操作と断定しません。
 
 PostgreSQLはプライベート構成です。診断のために安易にパブリックアクセスを有効化せず、Azureコントロールプレーンと承認済みの一時VNet接続経路を使用します。適用済みchange setを書き換えず、新しい修正マイグレーションを追加します。
 
@@ -548,7 +519,7 @@ az bicep build --file infra/main.bicep
 ./infra/deploy.ps1 -ResourceGroupName SREagent-lab -WhatIf
 ```
 
-ローカルDockerを利用できる場合だけ、Store、Admin、APIのイメージビルドも実行します。Dockerを利用できない場合は、デプロイスクリプトのACR Linuxビルドを代替検証経路として使用します。
+ローカルDockerを利用できる場合だけ、Store、管理画面、APIのイメージビルドも実行します。フロントエンドのDockerビルドでは`VITE_API_BASE_URL`を必ず指定します。
 
 ## エスカレーション時に添付する情報
 
@@ -589,6 +560,16 @@ az bicep build --file infra/main.bicep
 - 状態: 解決、暫定回避、未解決、環境上未検証のいずれか
 ```
 
+### 2026-08-26: 管理画面から本番APIへアクセスできない
+
+- 症状・影響: Azure上の管理画面でダッシュボード、注文、在庫などのAPIデータを取得できず、画面に再試行可能なエラーが表示された。
+- 原因・仮説: デプロイ済み管理画面のJavaScriptに、ビルド時の`VITE_API_BASE_URL`未指定によって`http://localhost:8081`が埋め込まれた。現行デプロイスクリプトはAPI URLを渡すため、引数なしで作成された旧イメージまたは手動ビルドがデプロイされている可能性が高い。
+- 証跡: `AppEvents`の`AdminApiFailure`で操作`GetDashboardSummary`、状態`network_error`を確認した。バックエンド側には対応する管理API要求、例外、コンソールエラーがなかった。現行`infra/deploy.ps1`は管理イメージのACRビルドへAPI URLを渡している。
+- 対応: Storeと管理画面のDockerfileで`VITE_API_BASE_URL`を必須化し、デプロイスクリプトでBicep出力のAPI URLが絶対HTTPS URLであることをACRビルド前に検証するよう変更した。切り分けと復旧手順も本書へ追加した。
+- 検証: `infra/deploy.ps1`のPowerShell AST解析はエラー0件で、HTTPS URLは受理し、空、HTTP、相対URLは拒否することを確認した。Docker DesktopのLinuxエンジンが停止していたため、ローカルのコンテナーイメージビルドとAzure再デプロイ後のブラウザー確認は未実施。
+- 再発防止: API URL未指定のコンテナーイメージをビルド時に失敗させ、デプロイ元URLも事前検証する。デプロイ後は要求先URL、イメージタグ、新規`AdminApiFailure`の有無を確認する。
+- 状態: 環境上未検証
+
 ### 2026-08-13: Application InsightsへAPIテレメトリが送信されない
 
 - 症状・影響: Application Insightsリソースと接続文字列は存在したが、APIの要求、依存関係、ログ、業務メトリックを収集できなかった。
@@ -597,56 +578,6 @@ az bicep build --file infra/main.bicep
 - 対応: Javaエージェント3.7.8、SHA-256検証、Micrometer、構造化ログ、例外ログ、ライフサイクルログを追加した。
 - 検証: バックエンドテスト、ACR Linuxイメージビルド、本番API要求、Application Insightsの`ApplicationReady`を確認した。
 - 再発防止: エージェントのバージョンとSHA-256を同時管理し、接続文字列だけでは計装されないことと確認用KQLを本書へ記載した。
-- 状態: 解決
-
-### 2026-08-14: 停止中PostgreSQLによりAzure What-Ifが失敗する
-
-- 症状・影響: Azure Validateは成功したが、サブスクリプションスコープのWhat-Ifが完了せず、デプロイ前の変更確認を実施できなかった。
-- 原因・仮説: 既存PostgreSQL Flexible Serverが`Stopped`で、What-Ifのリソース状態予測がサーバー情報を参照できなかった。
-- 証跡: `ServerStoppedError`と対象サーバーの`Stopped`状態を確認した。
-- 対応: Flexible Serverを起動し、状態が`Ready`になった後にWhat-Ifを再実行した。
-- 検証: What-Ifは9件作成、15件変更、削除0件として成功した。
-- 再発防止: デプロイ前確認へ`ServerStoppedError`時の起動・状態確認手順を追加した。
-- 状態: 解決
-
-### 2026-08-17: 停止中PostgreSQLにより本番APIがタイムアウトする
-
-- 症状・影響: StoreとAdminはHTTP 200だったが、APIルートと`GET /api/wines`がタイムアウトし、商品情報を取得できなかった。
-- 原因・仮説: PostgreSQL Flexible Serverが`Stopped`でAPIがDBへ接続できなかった。サーバーが停止した契機は未確定。
-- 証跡: APIリビジョン`azapidepgzxcukhrdm--0000009`のログでLiquibase初期化中の`PSQLException`と`SocketTimeoutException: connect timed out`を確認し、AzureコントロールプレーンでFlexible Serverの`Stopped`状態を確認した。
-- 対応: Flexible Serverを起動して`Ready`を確認し、APIリビジョンを再起動した。
-- 検証: APIリビジョンが`Healthy`かつ`Provisioned`となり、`GET /api/wines`はHTTP 200で6商品を返し、6商品すべてに説明文が存在した。
-- 再発防止: APIだけがタイムアウトする場合のFlexible Server状態確認、起動、APIリビジョン再起動、復旧確認手順を本書へ追加した。停止契機はアクティビティログと運用履歴で確認する。
-- 状態: 解決
-
-### 2026-08-17: APIコールドスタート時のPostgreSQL接続失敗がアラートノイズ化する
-
-- 症状・影響: コールドスタートごとに`PSQLException`→`DatabaseException`→`BeanCreationException`が記録され、同種の起動失敗が短時間に複数件通知される。
-- 原因・仮説: `minReplicas: 0`環境で起動直後のPrivate DNS解決/ネットワーク経路確立が間に合わず、Liquibase初期化で一時的にDB接続失敗する。
-- 証跡: 24時間で同一例外連鎖が周期的に発生し、後続リトライ成功後は`GET /api/wines`がHTTP 200で復旧した。
-- 対応: 起動失敗を`ApplicationStartupFailed`として1起動1件で記録し、既知連鎖は`expected_startup_failure`としてWARN集約へ変更した。さらに起動開始から`PT1M`の間は同一PostgreSQL失敗連鎖を`HttpRequestSuppressedStartupFailure`へ1回集約し、`ApplicationReady`以降は`HttpRequestFailed`を即時通知する運用へ更新した。
-- 検証: バックエンド単体テストを追加して既知例外連鎖の判定を確認し、監視用KQLを`docs/observability.md`へ反映した。
-- 再発防止: 起動中例外と起動後障害のアラート条件を分離し、既知の起動時接続失敗は集約指標として扱う。
-- 状態: 解決
-
-### 2026-08-17: Entra認証とAPIパスの不一致によりFoundry画像生成を開始できない
-
-- 症状・影響: APIキー認証を無効化したFoundryプロジェクトで、追加した14商品の画像生成を開始できなかった。
-- 原因・仮説: 初回はローカルのAzure CLIとVS CodeのEntra credential chainが認証情報を取得できなかった。サインイン後の試行では、Microsoft形式のMAI ImageデプロイにOpenAI互換の`/openai/v1/images/generations`を使用していたためHTTP 404になった。
-- 証跡: Foundry MCPのcredential chainとAzure CLIがタイムアウトした後、利用者の再サインインでAzure CLIが復旧した。`MAI-Image-2.5`デプロイが`Running`かつ`Succeeded`であることを確認し、OpenAI互換パスではHTTP 404、MAI専用パスでは生成に成功した。
-- 対応: Azure Developer CLIを1.31.1へ更新し、`microsoft.foundry`拡張1.0.0-beta.2と依存拡張を導入した。Entraサインイン後、`/mai/v1/images/generations`へ切り替え、返却PNGをJPEGへ変換した。
-- 検証: `MAI-Image-2.5`で14枚を生成し、全ファイルがJPEGとして読み取り可能で、768x1024ピクセルであることを確認した。
-- 再発防止: Entra認証の事前確認、トークン有効期限の安全な確認、必要ロール、モデル形式、MAI専用APIパスの確認手順を本書へ追加した。
-- 状態: 解決
-
-### 2026-08-14: AdminのACRビルドが接続文字列とlockfileにより失敗する
-
-- 症状・影響: ブートストラップデプロイ後、AdminイメージのACRビルドが失敗し、最終アプリデプロイへ進まなかった。
-- 原因・仮説: Application Insights接続文字列のセミコロンがACR内部シェルで分割された。修正後はlockfileが開発環境固有のパッケージURLを固定し、ACRからの取得を拒否された。
-- 証跡: ACR Runで`docker build requires exactly 1 argument`と`EALLOWREMOTE`を確認した。
-- 対応: 接続文字列をBase64化して渡し、コンテナー内で復号した。Adminへ公開npmレジストリ設定と`.dockerignore`を追加し、Dockerfileを`package.json`からの依存解決へ変更した。
-- 検証: Adminを含む3件のACRビルド、最終ARMデプロイ、3リビジョンの`Healthy`、AdminのHTTP 200を確認した。
-- 再発防止: ACRビルド確認項目へシェル特殊文字、lockfileの取得元、ビルドコンテキスト除外を追加した。
 - 状態: 解決
 
 ### 2026-08-13: Docker Desktop停止によりローカルイメージを検証できない

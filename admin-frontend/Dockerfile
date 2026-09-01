@@ -6,9 +6,10 @@ COPY package.json .npmrc ./
 RUN npm install --ignore-scripts
 COPY . .
 
-ARG VITE_API_BASE_URL=http://localhost:8081
+ARG VITE_API_BASE_URL
 ARG VITE_APPLICATIONINSIGHTS_CONNECTION_STRING_BASE64
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN test -n "$VITE_API_BASE_URL" || (echo 'VITE_API_BASE_URL build argument is required.' >&2; exit 1)
 RUN export VITE_APPLICATIONINSIGHTS_CONNECTION_STRING="$(printf '%s' "$VITE_APPLICATIONINSIGHTS_CONNECTION_STRING_BASE64" | base64 -d)" && npm run build
 
 FROM cgr.dev/chainguard/nginx:latest
