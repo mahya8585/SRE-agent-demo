@@ -1,5 +1,6 @@
 package com.example.wine.telemetry;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -19,6 +20,7 @@ public class StartupFailureSuppressionPolicy {
     private final Set<String> suppressedFailureChains = ConcurrentHashMap.newKeySet();
     private volatile Instant readyAt;
 
+    @Autowired
     public StartupFailureSuppressionPolicy(
             @Value("${app.telemetry.startup-failure-suppression-window:PT1M}") Duration startupFailureSuppressionWindow) {
         this(startupFailureSuppressionWindow, Clock.systemUTC());

@@ -610,6 +610,16 @@ az bicep build --file infra/main.bicep
 - 再発防止: Resource Graphの空結果だけで不存在と判断せず、リソースグループ指定のAzure Resource Manager結果と照合する手順を本書へ記載した。
 - 状態: 解決
 
+### 2026-09-01: StartupFailureSuppressionPolicyの@Autowired欠落によりAPIが起動失敗
+
+- 症状・影響: バックエンドAPI（`azapidepgzxcukhrdm`）がクラッシュループに陥り、`/api/wines`がJSON商品データではなくAzure Container Appsのデフォルトウェルカムページ（HTML）を返した。購入者向けサイトで商品一覧が表示されず、購入フロー全体が停止した。
+- 原因・仮説: `com.example.wine.telemetry.StartupFailureSuppressionPolicy`クラスにコンストラクタが2つあるが`@Autowired`アノテーションがないため、Springがどちらを使うか判断できずデフォルトコンストラクタを探して`NoSuchMethodException`が発生した。イメージ`wine-api:20260828152557`（8/28デプロイ）で混入。
+- 証跡: リビジョン`azapidepgzxcukhrdm--0000013`のコンテナログで`BeanCreationException: Failed to instantiate [StartupFailureSuppressionPolicy]: No default constructor found`を確認。`latestReadyRevisionName`は古い`0000010`のまま。インフラ（イメージpull、DB接続、Liquibase、Tomcat初期化）は全て正常で、Spring bean生成段階でexit code 1が発生。
+- 対応: publicコンストラクタに`@Autowired`を追加。GitHub issue #5を登録。
+- 検証: 修正イメージのビルドとデプロイ後に`/api/wines`がJSON商品データを返すことを確認する（未実施）。
+- 再発防止: コンストラクタが複数あるSpring `@Component`では`@Autowired`を明示する。起動失敗はリビジョンログの`ProcessExited`とexit codeで早期検出する。
+- 状態: 環境上未検証
+
 ## 関連文書
 
 - [システム仕様](system-overview.md)
