@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -14,6 +16,17 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class StartupFailureSuppressionPolicyTest {
+
+    @Test
+    void canBeCreatedBySpringWhenTestConstructorAlsoExists() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getBeanFactory().setConversionService(ApplicationConversionService.getSharedInstance());
+            context.register(StartupFailureSuppressionPolicy.class);
+            context.refresh();
+
+            assertThat(context.getBean(StartupFailureSuppressionPolicy.class)).isNotNull();
+        }
+    }
 
     @Test
     void suppressesPostgresFailureBeforeReadyWithinSuppressionWindow() {

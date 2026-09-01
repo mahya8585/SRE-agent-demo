@@ -435,6 +435,19 @@ az monitor activity-log list --resource-group SREagent-lab --max-events 50 --out
 
 障害中に設定を連続変更せず、まず失敗リビジョンと正常リビジョンの差分を保存します。復旧を優先する場合は、確認済みの正常イメージタグとリビジョンへ戻す計画を立て、影響を確認してから実行します。
 
+API URLへアクセスしてHTTP 200が返っても、本文が`Your Azure Container Apps app is live`の初期画面であればAPIの正常応答ではありません。`latestRevisionName`と`latestReadyRevisionName`が異なり、古い`bootstrap`リビジョンへトラフィックが残っていないか確認します。
+
+```powershell
+az containerapp show --name $ApiApp --resource-group SREagent-lab --output json |
+    ConvertFrom-Json |
+    Select-Object -ExpandProperty properties |
+    Select-Object latestRevisionName, latestReadyRevisionName, runningStatus
+
+az containerapp revision list --name $ApiApp --resource-group SREagent-lab --output table
+```
+
+失敗リビジョンで`ProcessExited`が発生し、最深原因が`StartupFailureSuppressionPolicy.<init>()`の`NoSuchMethodException`で、`No default constructor found`も記録されている場合は、今回確認したDB障害ではなくSpring Beanのコンストラクター選択失敗です。別のBean名や最深原因の場合は同じ原因と断定しません。複数コンストラクターを持つコンポーネントでは、依存性注入に使うコンストラクターを`@Autowired`で明示し、SpringコンテキストからBeanを生成するテストを実行します。
+
 ### PostgreSQLまたはLiquibaseで起動に失敗する
 
 本番APIは`production`プロファイルでLiquibaseマイグレーションを実行します。コンソールログで最初のLiquibase例外と、その内側のPostgreSQL例外を確認します。
@@ -559,6 +572,16 @@ az bicep build --file infra/main.bicep
 - 再発防止: 追加したテスト、監視、手順、設定上の対策
 - 状態: 解決、暫定回避、未解決、環境上未検証のいずれか
 ```
+
+### 2026-09-01: API起動失敗によりStoreと管理画面がデータを取得できない
+
+- 症状・影響: Azure上のStoreと管理画面は表示できるが、Storeの商品一覧と管理画面の全データ取得が失敗した。API URLはHTTP 200を返すものの、API応答ではなくContainer Appsの初期画面だった。
+- 原因・仮説: API最新リビジョン`0000013`で`StartupFailureSuppressionPolicy`のBean生成に失敗した。テスト用を含む複数コンストラクターがある一方、注入対象が明示されておらず、Spring Boot 2.7.18が存在しない既定コンストラクターを探索した。Container Appsは正常化できない最新リビジョンではなく、古い初期画面のリビジョンを配信していた。
+- 証跡: 最新APIリビジョンは`ActivationFailed`かつ`ProcessExited`終了コード1、最新Readyは旧`0000010`だった。コンソールログに`BeanInstantiationException`、`No default constructor found`、`NoSuchMethodException`を確認した。Liquibaseはchange log lockを取得・解放し、PostgreSQLは`Ready`、直近の接続失敗メトリックは0だった。
+- 対応: 本番用コンストラクターへ`@Autowired`を追加し、SpringコンテキストがBeanを生成できる回帰テストを追加した。初期画面へのフォールバックとBean生成失敗の診断手順を本書へ追加した。
+- 検証: ローカルのバックエンド全34テストは失敗0、エラー0で成功し、追加したSpring Bean生成テストも成功した。`git diff --check`とMarkdownのコードフェンス整合性確認も成功した。Azureへの再デプロイと新リビジョンでのAPI応答確認は未実施。
+- 再発防止: コンストラクターを直接呼ぶ単体テストだけでなく、SpringによるBean生成を検証する。API確認ではHTTPステータスに加えてContent-Typeと本文、最新Readyリビジョンを照合する。
+- 状態: 修正済み・Azure未反映
 
 ### 2026-08-26: 管理画面から本番APIへアクセスできない
 
