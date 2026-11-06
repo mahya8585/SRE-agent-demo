@@ -460,6 +460,32 @@ az containerapp revision list --name $ApiApp --resource-group SREagent-lab --out
 
 PostgreSQLはプライベート構成です。診断のために安易にパブリックアクセスを有効化せず、Azureコントロールプレーンと承認済みの一時VNet接続経路を使用します。適用済みchange setを書き換えず、新しい修正マイグレーションを追加します。
 
+### 障害がアラートにならず、SRE AgentのOperations Hubにデータが出ない
+
+SRE Agentのインシデント分析はAzure Monitorアラートから作られたインシデントだけを集計します。アラートルールがない、またはどの応答プランの重大度にも一致しない場合、障害が続いていてもインシデントは作られません。
+
+2026-11-06に作成したアラートルール（通知先なし。SRE AgentがAzure Monitorを直接走査して取り込む）:
+
+| ルール名 | 種類 | 条件 | 重大度 |
+|---|---|---|---|
+| `mv-api-http5xx` | メトリック | API Container Appの`Requests`（`statusCodeCategory`=5xx）合計が5分間で5件超 | Sev3 |
+| `mv-api-restarts` | メトリック | APIの`RestartCount`最大値が15分間で3超 | Sev3 |
+| `mv-appi-failed-requests` | メトリック | Application Insightsの`requests/failed`が5分間で5件超 | Sev3 |
+| `mv-api-db-connection-errors` | ログ検索 | `ContainerAppConsoleLogs_CL`でAPIのDB接続エラーが15分間で5件超 | Sev3 |
+| `mv-postgres-stopped` | アクティビティログ | PostgreSQL Flexible Serverの`stop/action` | なし（Sev4扱い） |
+| `lottery-http5xx` | メトリック | くじ引きApp Serviceの`Http5xx`が5分間で5件超 | Sev3 |
+
+確認手順:
+
+```bash
+az graph query -q "resources | where type in~ ('microsoft.insights/metricalerts','microsoft.insights/scheduledqueryrules','microsoft.insights/activitylogalerts') | project name, resourceGroup, enabled=tostring(properties.enabled), sev=tostring(properties.severity)"
+az graph query -q "alertsmanagementresources | where type =~ 'microsoft.alertsmanagement/alerts' | project rule=tostring(properties.essentials.alertRule), sev=tostring(properties.essentials.severity), st=tostring(properties.essentials.alertState), fired=todatetime(properties.essentials.startDateTime)"
+```
+
+- 発火したアラートが`New`のまま残る場合は、SRE Agentの応答プランが存在しないか、重大度が一致していません。SRE Agentポータルの応答プランを確認します。
+- Resource Graphでは`last`が予約語のため、列名に使うと解析エラーになります。
+- DB接続エラーのログ検索は、`ContainerAppConsoleLogs`ではなくカスタムログ形式の`ContainerAppConsoleLogs_CL`と`_s`付き列（`ContainerAppName_s`、`Log_s`）を使用します。
+
 ### 商品画像を登録または表示できない
 
 商品画像は、ローカルではAPIプロセス内のメモリ、本番では非公開のAzure Blob Storageへ保存します。本番APIはユーザー割り当てマネージドIDでBlobへアクセスし、ストレージ接続文字列やアカウントキーは使用しません。
@@ -572,6 +598,16 @@ az bicep build --file infra/main.bicep
 - 再発防止: 追加したテスト、監視、手順、設定上の対策
 - 状態: 解決、暫定回避、未解決、環境上未検証のいずれか
 ```
+
+### 2026-11-06: 障害がアラート化されず、SRE AgentのOperations Hubにデータが表示されない
+
+- 症状・影響: SRE AgentのOperations Hubで、インシデント分析・Automation・概要の各項目が空だった。APIのDB接続エラーは2026-10-28以降も毎日数百件続いていたが、インシデントとして取り込まれていなかった。
+- 原因・仮説: 監視対象リソースグループ（`SREagent-lab`、`lottery`）にAzure Monitorアラートルールがなかった。サブスクリプションで発火していたのは、別リソースグループにあるService HealthのSev4アラートだけで、`New`のまま残っていた。SRE Agentには応答プランも1件もなかった。Automationタブは既定表示期間が7日で、定期タスクが2026-09-29以降実行されていなかったため空だった。
+- 証跡: Resource Graphのアラートルール照会で管理対象リソースグループのルールは0件だった。`ContainerAppConsoleLogs_CL`でAPIの`HikariPool`、`PSQLException`などのDB接続エラーを日次で確認した（10/28は102件、11/05は674件）。応答プラン一覧は0件だった。ヘルスチェックタスクの最終実行は2026-09-29、改善提案タスクの最終実行は2026-09-07で、10/01と11/01の月次実行は行われていなかった。
+- 対応: 「障害がアラートにならず、SRE AgentのOperations Hubにデータが出ない」の表にある6件のアラートルールを作成した。止まっていた2件の定期タスクは一時停止してから再開した。応答プランはAPIからの作成が失敗したため（`Handling agent 'sre-master' does not exist`）、ポータルでの作成が必要。
+- 検証: 7件のアラートルール（既存のService Health 1件と新規6件）が有効であることをResource Graphで確認した。作成直後の1時間ではアラートの発火はまだなかった。ヘルスチェックタスクの次回実行予定は2026-11-07 01:00 UTC。
+- 再発防止: 監視ルールをリソースグループ単位で棚卸しし、発火したアラートが`New`のまま残っていないか定期的に確認する。PostgreSQLの停止はアクティビティログアラートで検知する。
+- 状態: 暫定回避（応答プランの作成、DB接続エラーの原因調査、アラート発火後のインシデント取り込みは未確認）
 
 ### 2026-09-01: API起動失敗によりStoreと管理画面がデータを取得できない
 
