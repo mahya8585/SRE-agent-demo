@@ -460,6 +460,30 @@ az containerapp revision list --name $ApiApp --resource-group SREagent-lab --out
 
 PostgreSQLはプライベート構成です。診断のために安易にパブリックアクセスを有効化せず、Azureコントロールプレーンと承認済みの一時VNet接続経路を使用します。適用済みchange setを書き換えず、新しい修正マイグレーションを追加します。
 
+### PostgreSQLが繰り返し停止し、APIが起動できない
+
+APIのコンソールログに`HikariPool-1 - Exception during pool initialization`と`PSQLException: The connection attempt failed.`が出て、Liquibase Beanの生成で起動に失敗する場合は、まずPostgreSQL Flexible Serverが停止していないか確認します。
+
+2026年9〜11月は、リポジトリ外の自動化（Activity Logの呼び出し元は`idtyp=app`のアプリケーション）がUTC 15:07〜15:10（日本時間 0:07〜0:10）にサーバーを停止していました。停止したFlexible Serverは7日後にAzureが自動で起動するため、「約7日停止 → 自動起動 → 1〜2日後に再停止」の周期で障害が繰り返されました。同じ呼び出し元が毎日UTC 08:35頃に`require_secure_transport`と`ssl_min_protocol_version`を書き込もうとし、停止中は`ServerIsBusy`で失敗しています。
+
+```bash
+az postgres flexible-server show -g SREagent-lab -n <POSTGRES_SERVER_NAME> --query state -o tsv
+az monitor activity-log list --resource-id <POSTGRES_RESOURCE_ID> --offset 30d --max-events 2000 \
+  --query "[?status.value=='Succeeded' && (contains(operationName.value,'stop') || contains(operationName.value,'start'))].{t:eventTimestamp,op:operationName.value,caller:caller,appid:claims.appid}" -o table
+```
+
+```kql
+ContainerAppConsoleLogs_CL
+| where ContainerAppName_s == '<API_CONTAINER_APP_NAME>'
+| summarize failedStarts=countif(Log_s has 'Exception during pool initialization'),
+            okStarts=countif(Log_s has 'Started WineDemoApplication') by day=bin(TimeGenerated, 1d)
+| order by day asc
+```
+
+- 停止している場合は、停止した呼び出し元のアプリケーションIDをMicrosoft Entra IDのエンタープライズアプリケーションで特定し、管理者に停止対象からの除外を依頼します。
+- 停止の自動化を止めないままPostgreSQLを手動で起動しても、再び停止されます。
+- サーバーの自動起動直後は、スケールゼロのAPIが初回要求で起動するまで1分程度かかります。最初のcurlがタイムアウトしても、数十秒後に再試行してから判断します。
+
 ### 障害がアラートにならず、SRE AgentのOperations Hubにデータが出ない
 
 SRE Agentのインシデント分析はAzure Monitorアラートから作られたインシデントだけを集計します。アラートルールがない、またはどの応答プランの重大度にも一致しない場合、障害が続いていてもインシデントは作られません。
@@ -471,7 +495,7 @@ SRE Agentのインシデント分析はAzure Monitorアラートから作られ�
 | `mv-api-http5xx` | メトリック | API Container Appの`Requests`（`statusCodeCategory`=5xx）合計が5分間で5件超 | Sev3 |
 | `mv-api-restarts` | メトリック | APIの`RestartCount`最大値が15分間で3超 | Sev3 |
 | `mv-appi-failed-requests` | メトリック | Application Insightsの`requests/failed`が5分間で5件超 | Sev3 |
-| `mv-api-db-connection-errors` | ログ検索 | `ContainerAppConsoleLogs_CL`でAPIのDB接続エラーが15分間で5件超 | Sev3 |
+| `mv-api-db-connection-errors` | ログ検索 | `ContainerAppConsoleLogs_CL`でAPIの`Exception during pool initialization`（起動失敗1回につき1行）が15分間で1件以上 | Sev3 |
 | `mv-postgres-stopped` | アクティビティログ | PostgreSQL Flexible Serverの`stop/action` | なし（Sev4扱い） |
 | `lottery-http5xx` | メトリック | くじ引きApp Serviceの`Http5xx`が5分間で5件超 | Sev3 |
 
@@ -485,6 +509,7 @@ az graph query -q "alertsmanagementresources | where type =~ 'microsoft.alertsma
 - 発火したアラートが`New`のまま残る場合は、SRE Agentの応答プランが存在しないか、重大度が一致していません。SRE Agentポータルの応答プランを確認します。
 - Resource Graphでは`last`が予約語のため、列名に使うと解析エラーになります。
 - DB接続エラーのログ検索は、`ContainerAppConsoleLogs`ではなくカスタムログ形式の`ContainerAppConsoleLogs_CL`と`_s`付き列（`ContainerAppName_s`、`Log_s`）を使用します。
+- `HikariPool`で検索すると、正常起動時の`HikariPool-1 - Starting...`や停止時の`Shutdown completed`などのINFO行も一致します。DB障害の件数を数えるときは`Exception during pool initialization`を使います。
 
 ### 商品画像を登録または表示できない
 
@@ -599,15 +624,25 @@ az bicep build --file infra/main.bicep
 - 状態: 解決、暫定回避、未解決、環境上未検証のいずれか
 ```
 
+### 2026-11-06: PostgreSQLが自動化により繰り返し停止され、APIが起動できない
+
+- 症状・影響: API（`/api/wines`など）が起動できず、Storeと管理画面がデータを表示できない状態が繰り返し発生した。10月は大半の日でAPIが使えなかった。
+- 原因・仮説: リポジトリ外の自動化（Activity Logの`idtyp=app`のアプリケーション）が、UTC 15:07〜15:10にPostgreSQL Flexible Serverを停止した（9/9、9/16、9/24、10/3、10/12、10/20、10/29）。停止中は、APIの起動時にLiquibaseがDBへ接続できず失敗する。Azureは停止7日後にサーバーを自動起動するが、その1〜2日後に再停止された。この自動化のサブスクリプション内ロール割り当ては見つからず、上位スコープから権限を継承していると考えられる。名前はGraph権限がないため特定できていない。
+- 証跡: Activity Logで`flexibleServers/stop/action`が上記日時に成功していた。手動の`start/action`は9/16の1件のみで、それ以外の復旧は自動起動だった（例: 10/29停止 → 11/05 15:41にResource Healthが解消）。APIの`Exception during pool initialization`は停止期間中に毎日11〜123回出ており、自動起動の後には`Started WineDemoApplication`が記録されていた。同じ呼び出し元による`require_secure_transport`と`ssl_min_protocol_version`の書き込みは、停止中は`ServerIsBusy`で失敗し、稼働中（10/02、10/11、10/20、10/28）は成功していた。
+- 対応: 現在サーバーは`Ready`で、APIは初回の起動（約50秒）の後、HTTP 200でJSONを返すことを確認した。アラート`mv-api-db-connection-errors`は正常時のINFO行にも一致していたため、`Exception during pool initialization`が1件以上で発火するよう修正した。停止アラート`mv-postgres-stopped`は作成済み。
+- 検証: `az postgres flexible-server show`の結果は`state=Ready`だった。API `/api/wines`は2回目の要求でHTTP 200（1.7秒）を返した。11/06のログに起動失敗はない。
+- 再発防止: 停止を実行するアプリケーションをEntra IDで特定し、管理者にこのサーバーを停止対象から除外してもらう必要がある。除外されない限り、次回の停止は11/06〜11/07 UTC 15:0x頃と予想される。
+- 状態: 未解決（停止の自動化が止まっておらず、再発する見込み）
+
 ### 2026-11-06: 障害がアラート化されず、SRE AgentのOperations Hubにデータが表示されない
 
 - 症状・影響: SRE AgentのOperations Hubで、インシデント分析・Automation・概要の各項目が空だった。APIのDB接続エラーは2026-10-28以降も毎日数百件続いていたが、インシデントとして取り込まれていなかった。
 - 原因・仮説: 監視対象リソースグループ（`SREagent-lab`、`lottery`）にAzure Monitorアラートルールがなかった。サブスクリプションで発火していたのは、別リソースグループにあるService HealthのSev4アラートだけで、`New`のまま残っていた。SRE Agentには応答プランも1件もなかった。Automationタブは既定表示期間が7日で、定期タスクが2026-09-29以降実行されていなかったため空だった。
-- 証跡: Resource Graphのアラートルール照会で管理対象リソースグループのルールは0件だった。`ContainerAppConsoleLogs_CL`でAPIの`HikariPool`、`PSQLException`などのDB接続エラーを日次で確認した（10/28は102件、11/05は674件）。応答プラン一覧は0件だった。ヘルスチェックタスクの最終実行は2026-09-29、改善提案タスクの最終実行は2026-09-07で、10/01と11/01の月次実行は行われていなかった。
+- 証跡: Resource Graphのアラートルール照会で管理対象リソースグループのルールは0件だった。`ContainerAppConsoleLogs_CL`でAPIのDB初期化失敗（`Exception during pool initialization`）を確認した（10/30〜11/04は毎日31〜41回、11/05は47回）。応答プラン一覧は0件だった。ヘルスチェックタスクの最終実行は2026-09-29、改善提案タスクの最終実行は2026-09-07で、10/01と11/01の月次実行は行われていなかった。
 - 対応: 「障害がアラートにならず、SRE AgentのOperations Hubにデータが出ない」の表にある6件のアラートルールを作成した。止まっていた2件の定期タスクは一時停止してから再開した。応答プランはAPIからの作成が失敗したため（`Handling agent 'sre-master' does not exist`）、ポータルでの作成が必要。
 - 検証: 7件のアラートルール（既存のService Health 1件と新規6件）が有効であることをResource Graphで確認した。作成直後の1時間ではアラートの発火はまだなかった。ヘルスチェックタスクの次回実行予定は2026-11-07 01:00 UTC。
 - 再発防止: 監視ルールをリソースグループ単位で棚卸しし、発火したアラートが`New`のまま残っていないか定期的に確認する。PostgreSQLの停止はアクティビティログアラートで検知する。
-- 状態: 暫定回避（応答プランの作成、DB接続エラーの原因調査、アラート発火後のインシデント取り込みは未確認）
+- 状態: 暫定回避（応答プランの作成とアラート発火後のインシデント取り込みは未確認。DB接続エラーの原因は2026-11-06の「PostgreSQLが自動化により繰り返し停止される」を参照）
 
 ### 2026-09-01: API起動失敗によりStoreと管理画面がデータを取得できない
 
